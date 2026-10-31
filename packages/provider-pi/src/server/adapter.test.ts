@@ -16,6 +16,7 @@ import {
   type ModelSelection,
   type OrchestrationV2AppThread,
   type OrchestrationV2ProviderThread,
+  type OrchestrationV2TurnItem,
   OrchestrationV2UserInputQuestion,
   type OrchestrationV2ProviderTurn,
 } from "@t3tools/contracts";
@@ -3183,6 +3184,204 @@ describe("PiAdapterV2", () => {
             completed.turnItem.exitCode === exitCode &&
             completed.turnItem.status === (exitCode === 0 ? "completed" : "failed"),
         );
+      }).pipe(Effect.scoped, Effect.provide(layerTest)),
+  );
+
+  it.effect(
+    "retains async questions after settlement and adopts an answer-triggered native wake",
+    () =>
+      Effect.gen(function* () {
+        const fake = yield* makeFakePi;
+        const offers =
+          yield* Queue.unbounded<ProviderContinuationRequests.ProviderContinuationRequest>();
+        const { runtime, takeEvent } = yield* openRuntime(
+          fake,
+          "default",
+          THREAD_ID,
+          SESSION_ID,
+          undefined,
+          {
+            offer: (request) => Queue.offer(offers, request).pipe(Effect.asVoid),
+          },
+        );
+        const providerThread = yield* runtime.ensureThread({
+          threadId: THREAD_ID,
+          modelSelection: modelSelection("default"),
+          runtimePolicy,
+        });
+        yield* startTurn(runtime, providerThread);
+        yield* fake.takeRequest("prompt");
+        yield* fake.emit({ type: "agent_start" });
+        const questionIds = [
+          "11111111-1111-4111-8111-111111111111",
+          "22222222-2222-4222-8222-222222222222",
+        ];
+        const dialogs: Array<Extract<OrchestrationV2TurnItem, { type: "user_input_request" }>> = [];
+        for (const [index, questionId] of questionIds.entries()) {
+          yield* fake.emit({
+            type: "extension_ui_request",
+            id: `async-${index}`,
+            method: "select",
+            title: `[async-user-question:${questionId}] Which option?`,
+            options: ["1. Yes", "2. No", "3. Other"],
+          });
+          const item = yield* takeEvent(
+            (event) =>
+              event.type === "turn_item.updated" && event.turnItem.type === "user_input_request",
+          );
+          if (item.type !== "turn_item.updated" || item.turnItem.type !== "user_input_request")
+            return assert.fail("missing question");
+          assert.equal(item.turnItem.title, "Which option?");
+          assert.equal(item.turnItem.questions[0]?.header, "Which option?");
+          assert.equal(item.turnItem.questions[0]?.allowCustomAnswer, false);
+          dialogs.push(item.turnItem);
+        }
+        yield* fake.emit({
+          type: "extension_ui_request",
+          id: "ordinary",
+          method: "select",
+          title: "Ordinary dialog",
+          options: ["Yes"],
+        });
+        yield* takeEvent(
+          (event) =>
+            event.type === "turn_item.updated" && event.turnItem.type === "user_input_request",
+        );
+        yield* fake.emit({ type: "agent_settled" });
+        yield* takeEvent((event) => event.type === "turn.terminal");
+        assert.deepEqual(
+          fake
+            .allRequests()
+            .filter((request) => request["type"] === "extension_ui_response")
+            .map((request) => request["id"]),
+          ["ordinary"],
+        );
+        yield* runtime.respondToRuntimeRequest({
+          requestId: dialogs[0]!.requestId,
+          answers: { "async-0": "3. Other" },
+        });
+        const selection = yield* fake.takeRequest("extension_ui_response");
+        assert.equal(selection["id"], "ordinary");
+        const other = yield* fake.takeRequest("extension_ui_response");
+        assert.equal(other["id"], "async-0");
+        assert.equal(other["value"], "3. Other");
+        yield* fake.emit({
+          type: "extension_ui_request",
+          id: "async-input",
+          method: "input",
+          title: `[async-user-question:${questionIds[0]}] Which option?`,
+          placeholder: "Type your answer",
+        });
+        const input = yield* takeEvent(
+          (event) =>
+            event.type === "turn_item.updated" &&
+            event.turnItem.type === "user_input_request" &&
+            event.turnItem.nativeItemRef?.nativeId === "async-input",
+        );
+        if (input.type !== "turn_item.updated" || input.turnItem.type !== "user_input_request")
+          return assert.fail("missing custom input");
+        assert.isNull(input.turnItem.providerTurnId);
+        yield* runtime.respondToRuntimeRequest({
+          requestId: input.turnItem.requestId,
+          answers: { "async-input": "Custom answer" },
+        });
+        const answer = yield* fake.takeRequest("extension_ui_response");
+        assert.equal(answer["id"], "async-input");
+        assert.equal(answer["value"], "Custom answer");
+        yield* fake.emit({ type: "agent_start" });
+        const wake = yield* Queue.take(offers);
+        // A withdrawal must bypass wake buffering, before the next T3 turn owns native output.
+        yield* fake.emit({
+          type: "extension_ui_request",
+          id: "clear",
+          method: "setWidget",
+          widgetKey: `async-user-question:${questionIds[1]}`,
+        });
+        const cancelled = yield* takeEvent(
+          (event) =>
+            event.type === "runtime_request.updated" &&
+            event.runtimeRequest.id === dialogs[1]!.requestId &&
+            event.runtimeRequest.status === "cancelled",
+        );
+        assert.equal(cancelled.type, "runtime_request.updated");
+        assert.equal((yield* fake.takeRequest("extension_ui_response"))["id"], "async-1");
+        yield* fake.emit({ type: "message_start", message: { role: "assistant" } });
+        yield* fake.emit({
+          type: "message_update",
+          assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: "Answer received" },
+        });
+        yield* fake.emit({ type: "message_end", message: { role: "assistant" } });
+        yield* fake.emit({ type: "agent_settled" });
+        yield* takeEvent(
+          (event) =>
+            event.type === "provider_session.updated" && event.providerSession.status === "ready",
+        );
+        yield* wake.dispatchIfCurrent!(Effect.void);
+        yield* startTurn(
+          runtime,
+          providerThread,
+          "default",
+          [],
+          "Synthetic wake",
+          undefined,
+          2,
+          THREAD_ID,
+          true,
+        );
+        const message = yield* takeEvent((event) => event.type === "message.updated");
+        assert.equal(message.type === "message.updated" && message.message.text, "Answer received");
+        yield* takeEvent((event) => event.type === "turn.terminal");
+        assert.equal(
+          fake.allRequests().filter((request) => request["type"] === "prompt").length,
+          1,
+        );
+      }).pipe(Effect.scoped, Effect.provide(layerTest)),
+  );
+
+  it.effect.each(["aborted", "failed", "exit"] as const)(
+    "cancels async questions on %s",
+    (outcome) =>
+      Effect.gen(function* () {
+        const fake = yield* makeFakePi;
+        const { runtime, takeEvent } = yield* openRuntime(fake);
+        const providerThread = yield* runtime.ensureThread({
+          threadId: THREAD_ID,
+          modelSelection: modelSelection("default"),
+          runtimePolicy,
+        });
+        yield* startTurn(runtime, providerThread);
+        yield* fake.takeRequest("prompt");
+        yield* fake.emit({ type: "agent_start" });
+        yield* fake.emit({
+          type: "extension_ui_request",
+          id: "async-cleanup",
+          method: "select",
+          title: "[async-user-question:11111111-1111-4111-8111-111111111111] Continue?",
+          options: ["Yes"],
+        });
+        const pending = yield* takeEvent((event) => event.type === "runtime_request.updated");
+        if (pending.type !== "runtime_request.updated")
+          return assert.fail("missing pending request");
+        if (outcome === "exit") yield* fake.closeStdout;
+        else {
+          if (outcome === "failed")
+            yield* fake.emit({
+              type: "message_end",
+              message: { role: "assistant", stopReason: "error", errorMessage: "Offline failure" },
+            });
+          yield* fake.emit({ type: "agent_settled", aborted: outcome === "aborted" });
+        }
+        yield* takeEvent(
+          (event) =>
+            event.type === "runtime_request.updated" &&
+            event.runtimeRequest.id === pending.runtimeRequest.id &&
+            event.runtimeRequest.status === "cancelled",
+        );
+        if (outcome !== "exit") {
+          const response = yield* fake.takeRequest("extension_ui_response");
+          assert.equal(response["id"], "async-cleanup");
+          assert.equal(response["cancelled"], true);
+        }
       }).pipe(Effect.scoped, Effect.provide(layerTest)),
   );
 

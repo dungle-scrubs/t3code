@@ -378,8 +378,16 @@ interface PiTurnTreeRefs {
   readonly retainedNativeTurnIds: ReadonlyArray<string> | undefined;
 }
 
+const PI_ASYNC_QUESTION_UUID =
+  "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}";
+const PI_ASYNC_QUESTION_TITLE = new RegExp(
+  `^\\[async-user-question:(${PI_ASYNC_QUESTION_UUID})\\] `,
+);
+const PI_ASYNC_QUESTION_WIDGET = new RegExp(`^async-user-question:(${PI_ASYNC_QUESTION_UUID})$`);
+
 interface PendingPiPrompt {
   readonly nativeRequestId: string;
+  readonly asyncQuestionId: string | null;
   readonly method: "select" | "confirm" | "input" | "editor";
   readonly questionId: string;
   readonly approvalKey: string;
@@ -1221,9 +1229,13 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
 
       const cancelPendingPrompts = Effect.fn("PiAdapter.cancelPendingPrompts")(function* (
         resolvedAt: DateTime.Utc,
+        preserveAsync = false,
       ) {
-        const pending = Array.from(pendingPrompts.values());
-        pendingPrompts.clear();
+        const pending = Array.from(pendingPrompts.entries()).flatMap(([id, prompt]) => {
+          if (preserveAsync && prompt.asyncQuestionId !== null) return [];
+          pendingPrompts.delete(id);
+          return [prompt];
+        });
         yield* Effect.forEach(pending, (prompt) => cancelPrompt(prompt, resolvedAt), {
           discard: true,
         });
@@ -1286,6 +1298,20 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
         const method = recordString(event, "method");
         const nativeRequestId = recordString(event, "id");
         if (method === undefined) return;
+        if (method === "setWidget") {
+          const questionId = PI_ASYNC_QUESTION_WIDGET.exec(
+            recordString(event, "widgetKey") ?? "",
+          )?.[1];
+          if (questionId !== undefined && event["widgetLines"] === undefined) {
+            const now = yield* DateTime.now;
+            for (const [id, pending] of pendingPrompts) {
+              if (pending.asyncQuestionId !== questionId) continue;
+              pendingPrompts.delete(id);
+              yield* cancelPrompt(pending, now);
+            }
+          }
+          return;
+        }
         if (method === "notify") {
           const state = threadState;
           const turn = state?.activeTurn ?? null;
@@ -1327,17 +1353,23 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
           timeout === undefined || timeout === 0
             ? null
             : DateTime.toEpochMillis(createdAt) + Math.max(0, timeout);
+        const rawTitle = recordString(event, "title") ?? method;
+        const asyncMarker =
+          method === "select" || method === "input" ? PI_ASYNC_QUESTION_TITLE.exec(rawTitle) : null;
+        const asyncQuestionId = asyncMarker?.[1] ?? null;
+        const title = asyncMarker === null ? rawTitle : rawTitle.slice(asyncMarker[0].length);
+        // Async dialogs belong to the session; terminal ingestion closes turn-owned questions.
+        const promptTurn = asyncQuestionId === null ? turn : null;
         const requestId = yield* idAllocator.allocate.runtimeRequest({
           driver: PI_PROVIDER,
-          ...(turn === null ? {} : { providerTurnId: turn.providerTurn.id }),
+          ...(promptTurn === null ? {} : { providerTurnId: promptTurn.providerTurn.id }),
           nativeRequestId,
         });
         const nodeId = idAllocator.derive.approvalNode({ requestId });
-        const title = recordString(event, "title") ?? method;
         const threadId =
           turn?.turnInput.threadId ?? state?.providerThread.appThreadId ?? input.threadId;
         const providerThreadId = state?.providerThread.id ?? null;
-        const providerTurnId = turn?.providerTurn.id ?? null;
+        const providerTurnId = promptTurn?.providerTurn.id ?? null;
         const runtimeRequest: OrchestrationV2RuntimeRequest = {
           id: requestId,
           nodeId,
@@ -1352,9 +1384,9 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
         const node: OrchestrationV2ExecutionNode = {
           id: nodeId,
           threadId,
-          runId: turn?.turnInput.runId ?? null,
-          parentNodeId: turn?.turnInput.rootNodeId ?? null,
-          rootNodeId: turn?.turnInput.rootNodeId ?? nodeId,
+          runId: promptTurn?.turnInput.runId ?? null,
+          parentNodeId: promptTurn?.turnInput.rootNodeId ?? null,
+          rootNodeId: promptTurn?.turnInput.rootNodeId ?? nodeId,
           kind: method === "confirm" ? "approval_request" : "user_input_request",
           status: "waiting",
           countsForRun: false,
@@ -1369,13 +1401,13 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
         const itemBase = {
           id: idAllocator.derive.approvalTurnItem({ requestId }),
           threadId,
-          runId: turn?.turnInput.runId ?? null,
+          runId: promptTurn?.turnInput.runId ?? null,
           nodeId,
           providerThreadId,
           providerTurnId,
           nativeItemRef: providerRef(nativeRequestId),
           parentItemId: null,
-          ordinal: turn === null ? 0 : itemOrdinal(turn, nativeRequestId),
+          ordinal: promptTurn === null ? 0 : itemOrdinal(promptTurn, nativeRequestId),
           status: "waiting" as const,
           title,
           startedAt: createdAt,
@@ -1395,10 +1427,18 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
                 ...itemBase,
                 type: "user_input_request",
                 requestId,
-                questions: [piQuestion(nativeRequestId, method, title, event)],
+                questions: [
+                  {
+                    ...piQuestion(nativeRequestId, method, title, event),
+                    ...(asyncQuestionId !== null && method === "select"
+                      ? { allowCustomAnswer: false }
+                      : {}),
+                  },
+                ],
               };
         const pending: PendingPiPrompt = {
           nativeRequestId,
+          asyncQuestionId,
           method,
           questionId: nativeRequestId,
           approvalKey,
@@ -1540,7 +1580,10 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
             turn.activeProviderRetry = null;
           }
         }
-        yield* cancelPendingPrompts(completedAt);
+        yield* cancelPendingPrompts(
+          completedAt,
+          !interrupted && turn.failure === null && turn.rejectedPromptFailure === null,
+        );
         const treeRefs =
           turn.stopTreeRefs !== undefined ? turn.stopTreeRefs : yield* captureTurnTreeRefs();
         const tokenUsage = readUsage
@@ -1678,7 +1721,9 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
         // Model hooks can show dialogs before turn ownership; keep requests session-scoped and buffer output.
         const interactiveUiRequest =
           event["type"] === "extension_ui_request" &&
-          ["select", "confirm", "input", "editor"].includes(String(event["method"]));
+          (["select", "confirm", "input", "editor"].includes(String(event["method"])) ||
+            (event["method"] === "setWidget" &&
+              PI_ASYNC_QUESTION_WIDGET.test(recordString(event, "widgetKey") ?? "")));
         if (
           threadState?.activeTurn === null &&
           pendingWake !== null &&
