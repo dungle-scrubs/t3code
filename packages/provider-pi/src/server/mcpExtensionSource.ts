@@ -11,6 +11,12 @@ export const T3_PI_MCP_EXTENSION_PATH_ENV = "T3_PI_MCP_EXTENSION_PATH";
 // These tools trigger file-change approvals, bypassed by Auto-accept edits.
 export const PI_FILE_CHANGE_TOOLS = ["edit", "write"] as const;
 
+/** RPC `setWidget` key for versioned background-task snapshots. */
+export const PI_BACKGROUND_TASK_WIDGET_KEY = "t3:background-tasks:v1";
+
+/** RPC `setWidget` key for versioned task-board snapshots. */
+export const PI_TASKS_WIDGET_KEY = "t3:tasks:v1";
+
 export const PI_T3_MCP_EXTENSION_SOURCE = `\
 import { stripFrontmatter, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import * as NodeFSP from "node:fs/promises";
@@ -25,6 +31,12 @@ const ORCHESTRATION_INSTRUCTIONS = ${JSON.stringify(T3_CODE_ORCHESTRATION_INSTRU
 const PROTOCOL = "2025-06-18";
 const READ_ONLY_TOOLS = new Set(["read", "grep", "find", "ls"]);
 const FILE_CHANGE_TOOLS = new Set(${JSON.stringify(PI_FILE_CHANGE_TOOLS)});
+const BACKGROUND_TASK_WIDGET_KEY = ${JSON.stringify(PI_BACKGROUND_TASK_WIDGET_KEY)};
+const TASKS_WIDGET_KEY = ${JSON.stringify(PI_TASKS_WIDGET_KEY)};
+const RPC_WIDGETS = [
+  ["interop.v1.background-tasks.snapshot", BACKGROUND_TASK_WIDGET_KEY],
+  ["interop.v1.tasks.snapshot", TASKS_WIDGET_KEY],
+];
 
 type RuntimeMode = "approval-required" | "auto-accept-edits" | "auto" | "full-access";
 
@@ -449,11 +461,46 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
     if (missing.length > 0) pi.setActiveTools([...active, ...missing]);
   };
 
+  let widgetTransport:
+    | { readonly ui: ExtensionContext["ui"]; readonly unsubscribe: Array<() => void> }
+    | undefined;
+  const releaseWidgetTransport = () => {
+    const transport = widgetTransport;
+    widgetTransport = undefined;
+    for (const unsubscribe of transport?.unsubscribe ?? []) unsubscribe();
+  };
+
   // Tree navigation restores its saved loadout after session_start.
   pi.on("session_tree", (_event, ctx) => reconcileDiscovery(ctx));
   pi.on("model_select", (_event, ctx) => reconcileDiscovery(ctx));
+  pi.on("session_shutdown", () => {
+    releaseWidgetTransport();
+  });
   pi.on("session_start", async (_event, ctx) => {
     reconcileDiscovery(ctx);
+    releaseWidgetTransport();
+    if (ctx.mode === "rpc") {
+      const ui = ctx.ui;
+      const unsubscribe = RPC_WIDGETS.map(([channel, widgetKey]) =>
+        pi.events.on(channel, (snapshot) => {
+          if (widgetTransport?.ui !== ui) return;
+          let encoded: string;
+          try {
+            encoded = JSON.stringify(snapshot);
+          } catch {
+            return;
+          }
+          if (typeof encoded !== "string") return;
+          ui.setWidget(widgetKey, [encoded]);
+        }),
+      );
+      widgetTransport = { ui, unsubscribe };
+      // Producer state.request parsing requires schemaVersion 1.
+      pi.events.emit("interop.v1.state.request", {
+        schemaVersion: 1,
+        requester: "t3-code",
+      });
+    }
     try {
       await ensureStarted();
     } catch (error) {

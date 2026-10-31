@@ -549,3 +549,200 @@ describe("Pi skill references", () => {
     }
   });
 });
+
+const BACKGROUND_TASK_SNAPSHOT = "interop.v1.background-tasks.snapshot";
+const BACKGROUND_TASK_REFRESH = "interop.v1.state.request";
+const BACKGROUND_TASK_WIDGET = "t3:background-tasks:v1";
+const TASKS_SNAPSHOT = "interop.v1.tasks.snapshot";
+const TASKS_WIDGET = "t3:tasks:v1";
+
+describe("Pi background task transport", () => {
+  const running = {
+    schemaVersion: 1,
+    tasks: [
+      {
+        id: "bg-1",
+        command: "npm test",
+        startTime: 1_700_000_000_000,
+        status: "running",
+        outputBytes: 12,
+        lastOutputAt: 1_700_000_000_100,
+      },
+    ],
+  };
+  const progress = {
+    schemaVersion: 1,
+    tasks: [
+      {
+        id: "bg-1",
+        command: "npm test",
+        startTime: 1_700_000_000_000,
+        status: "running",
+        outputBytes: 128,
+        lastOutputAt: 1_700_000_000_250,
+        checkCount: 2,
+        note: "still reading the suite",
+      },
+    ],
+  };
+  const terminal = {
+    schemaVersion: 1,
+    tasks: [
+      {
+        id: "bg-1",
+        command: "npm test",
+        startTime: 1_700_000_000_000,
+        status: "completed",
+        outputBytes: 128,
+        lastOutputAt: 1_700_000_000_250,
+      },
+    ],
+  };
+  const taskBoard = {
+    schemaVersion: 1,
+    tasks: [{ id: "1", subject: "Build", status: "pending", owner: "strip-me" }],
+  };
+  const taskEdit = {
+    schemaVersion: 1,
+    tasks: [{ id: "1", subject: "Build", status: "in_progress", activeForm: "Building" }],
+  };
+  const refresh = { schemaVersion: 1, requester: "t3-code" };
+
+  function widgetLine(snapshot: object) {
+    return [BACKGROUND_TASK_WIDGET, [JSON.stringify(snapshot)]] as const;
+  }
+
+  function taskLine(snapshot: object) {
+    return [TASKS_WIDGET, [JSON.stringify(snapshot)]] as const;
+  }
+
+  it("requests the current RPC snapshot and forwards later snapshots once", async () => {
+    const bridge = await loadMcpBridge();
+    const requests: unknown[] = [];
+    let current: object = running;
+    let currentTasks: object = taskBoard;
+    bridge.events.on(BACKGROUND_TASK_REFRESH, (payload) => {
+      requests.push(payload);
+      bridge.events.emit(BACKGROUND_TASK_SNAPSHOT, current);
+      bridge.events.emit(TASKS_SNAPSHOT, currentTasks);
+    });
+    const start = bridge.handlers.get("session_start")!;
+    const shutdown = bridge.handlers.get("session_shutdown")!;
+    const open = (mode: "rpc" | "tui") => {
+      const calls: Array<readonly [string, readonly string[] | undefined]> = [];
+      return {
+        calls,
+        ctx: {
+          mode,
+          model: { api: "anthropic-messages" },
+          ui: {
+            notify: () => undefined,
+            setWidget: (key: string, content: readonly string[] | undefined) => {
+              calls.push([key, content]);
+            },
+          },
+        },
+      };
+    };
+
+    const first = open("rpc");
+    await start({ systemPrompt: "" }, first.ctx);
+    assert.deepEqual(requests, [refresh]);
+    assert.deepEqual(first.calls, [widgetLine(running), taskLine(taskBoard)]);
+
+    bridge.events.emit(BACKGROUND_TASK_SNAPSHOT, progress);
+    const circular: Record<string, unknown> = { schemaVersion: 1, tasks: [] };
+    circular.self = circular;
+    bridge.events.emit(BACKGROUND_TASK_SNAPSHOT, circular);
+    bridge.events.emit(BACKGROUND_TASK_SNAPSHOT, terminal);
+    bridge.events.emit(TASKS_SNAPSHOT, taskEdit);
+    bridge.events.emit(TASKS_SNAPSHOT, circular);
+    assert.deepEqual(first.calls, [
+      widgetLine(running),
+      taskLine(taskBoard),
+      widgetLine(progress),
+      widgetLine(terminal),
+      taskLine(taskEdit),
+    ]);
+
+    current = progress;
+    currentTasks = taskEdit;
+    const second = open("rpc");
+    await start({ systemPrompt: "" }, second.ctx);
+    assert.deepEqual(requests, [refresh, refresh]);
+    assert.deepEqual(first.calls, [
+      widgetLine(running),
+      taskLine(taskBoard),
+      widgetLine(progress),
+      widgetLine(terminal),
+      taskLine(taskEdit),
+    ]);
+    assert.deepEqual(second.calls, [widgetLine(progress), taskLine(taskEdit)]);
+    bridge.events.emit(BACKGROUND_TASK_SNAPSHOT, terminal);
+    bridge.events.emit(TASKS_SNAPSHOT, taskBoard);
+    assert.deepEqual(second.calls, [
+      widgetLine(progress),
+      taskLine(taskEdit),
+      widgetLine(terminal),
+      taskLine(taskBoard),
+    ]);
+    assert.equal(first.calls.length, 5);
+
+    await shutdown({ systemPrompt: "" }, { ui: { notify: () => undefined } });
+    bridge.events.emit(BACKGROUND_TASK_SNAPSHOT, running);
+    bridge.events.emit(TASKS_SNAPSHOT, taskEdit);
+    assert.equal(first.calls.length, 5);
+    assert.equal(second.calls.length, 4);
+
+    current = running;
+    currentTasks = taskBoard;
+    const restarted = open("rpc");
+    await start({ systemPrompt: "" }, restarted.ctx);
+    assert.deepEqual(requests, [refresh, refresh, refresh]);
+    assert.deepEqual(restarted.calls, [widgetLine(running), taskLine(taskBoard)]);
+    assert.equal(first.calls.length, 5);
+    assert.equal(second.calls.length, 4);
+
+    const interactive = open("tui");
+    await start({ systemPrompt: "" }, interactive.ctx);
+    bridge.events.emit(BACKGROUND_TASK_SNAPSHOT, terminal);
+    bridge.events.emit(TASKS_SNAPSHOT, taskEdit);
+    assert.deepEqual(requests, [refresh, refresh, refresh]);
+    assert.deepEqual(interactive.calls, []);
+    assert.equal(restarted.calls.length, 2);
+  });
+
+  it.each(["tui", "print", "json"] as const)(
+    "does not request or forward snapshots in %s mode",
+    async (mode) => {
+      const bridge = await loadMcpBridge();
+      const requests: unknown[] = [];
+      bridge.events.on(BACKGROUND_TASK_REFRESH, (payload) => {
+        requests.push(payload);
+      });
+      const calls: unknown[] = [];
+      await bridge.handlers.get("session_start")!(
+        { systemPrompt: "" },
+        {
+          mode,
+          ui: {
+            notify: () => undefined,
+            setWidget: (...args: unknown[]) => {
+              calls.push(args);
+            },
+          },
+        },
+      );
+      bridge.events.emit(BACKGROUND_TASK_SNAPSHOT, {
+        schemaVersion: 1,
+        tasks: [{ id: "bg-1", command: "npm test", startTime: 1, status: "running" }],
+      });
+      bridge.events.emit(TASKS_SNAPSHOT, {
+        schemaVersion: 1,
+        tasks: [{ id: "1", subject: "Build", status: "pending" }],
+      });
+      assert.deepEqual(requests, []);
+      assert.deepEqual(calls, []);
+    },
+  );
+});

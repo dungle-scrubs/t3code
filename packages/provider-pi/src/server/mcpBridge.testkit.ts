@@ -1,4 +1,5 @@
 // @effect-diagnostics nodeBuiltinImport:off -- Executes the shipped Pi extension at its native JavaScript boundary.
+import * as NodeEvents from "node:events";
 import * as NodeModule from "node:module";
 import * as NodePath from "node:path";
 import * as NodeVM from "node:vm";
@@ -34,10 +35,34 @@ type AgentStartHook = (
     systemPromptOptions?: { sections?: Record<string, string> | null; forceSystemPrompt?: string };
   },
   ctx: {
+    mode?: "rpc" | "tui" | "json" | "print";
     model?: { api: string };
-    ui: { notify: (message: string, severity: string) => void };
+    ui: {
+      notify: (message: string, severity: string) => void;
+      setWidget?: (key: string, content: readonly string[] | undefined) => void;
+    };
   },
 ) => Promise<{ systemPrompt: string } | undefined>;
+
+type McpBridgeEventBus = {
+  emit(channel: string, data: unknown): void;
+  on(channel: string, handler: (data: unknown) => void): () => void;
+};
+
+function createEventBus(): McpBridgeEventBus {
+  const emitter = new NodeEvents.EventEmitter();
+  return {
+    emit(channel, data) {
+      emitter.emit(channel, data);
+    },
+    on(channel, handler) {
+      emitter.on(channel, handler);
+      return () => {
+        emitter.off(channel, handler);
+      };
+    },
+  };
+}
 
 export async function loadMcpBridge(
   options: {
@@ -51,6 +76,7 @@ export async function loadMcpBridge(
   } = {},
 ) {
   const handlers = new Map<string, AgentStartHook>();
+  const events = createEventBus();
   const tools: RegisteredTool[] = [];
   const requests: Array<{ readonly method: string; readonly params?: unknown }> = [];
   let activeTools = ["read"];
@@ -124,6 +150,7 @@ export async function loadMcpBridge(
       });
     },
     pi: {
+      events,
       on: (name: string, handler: AgentStartHook) => handlers.set(name, handler),
       registerTool: (tool: RegisteredTool) => {
         if (options.allowsTool && !options.allowsTool(tool.name)) return;
@@ -154,6 +181,7 @@ export async function loadMcpBridge(
   });
   return {
     handlers,
+    events,
     tools,
     setBridgeSourcePath: (path: string) => {
       bridgeSourcePath = path;

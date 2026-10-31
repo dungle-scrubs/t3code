@@ -15,6 +15,9 @@ import {
   type ChatAttachment,
   type ModelSelection,
   type OrchestrationV2AppThread,
+  type OrchestrationV2ExecutionNode,
+  type OrchestrationV2PlanArtifact,
+  type OrchestrationV2ProviderSession,
   type OrchestrationV2ProviderThread,
   type OrchestrationV2TurnItem,
   OrchestrationV2UserInputQuestion,
@@ -534,6 +537,71 @@ const startTurn = Effect.fnUntraced(function* (
   });
 });
 
+const backgroundCommand = (
+  id: string,
+  command: string,
+  startTime: number,
+  status: "running" | "completed" | "failed" | "killed" = "running",
+  fields: Record<string, unknown> = {},
+) => ({ id, command, startTime, status, ...fields });
+
+const backgroundSnapshot = (
+  tasks: ReadonlyArray<Record<string, unknown>>,
+  fields: Record<string, unknown> = {},
+): PiRpcRecord => ({
+  type: "extension_ui_request",
+  method: "setWidget",
+  widgetKey: "t3:background-tasks:v1",
+  widgetLines: [JSON.stringify({ schemaVersion: 1, ...fields, tasks })],
+});
+
+const taskSnapshot = (
+  tasks: ReadonlyArray<Record<string, unknown>>,
+  fields: Record<string, unknown> = {},
+): PiRpcRecord => ({
+  type: "extension_ui_request",
+  method: "setWidget",
+  widgetKey: "t3:tasks:v1",
+  widgetLines: [JSON.stringify({ schemaVersion: 1, ...fields, tasks })],
+});
+
+type TodoTurnItem = Extract<OrchestrationV2TurnItem, { type: "todo_list" }>;
+
+interface TaskEventCapture {
+  readonly plans: OrchestrationV2PlanArtifact[];
+  readonly nodes: OrchestrationV2ExecutionNode[];
+  readonly items: TodoTurnItem[];
+  readonly turns: OrchestrationV2ProviderTurn[];
+  readonly threads: OrchestrationV2ProviderThread[];
+  readonly sessions: OrchestrationV2ProviderSession[];
+}
+
+const captureTaskEvents = (): TaskEventCapture => ({
+  plans: [],
+  nodes: [],
+  items: [],
+  turns: [],
+  threads: [],
+  sessions: [],
+});
+
+const noteTaskEvent = (
+  capture: TaskEventCapture,
+  event: ProviderAdapter.ProviderAdapterV2Event,
+  stop: ProviderAdapter.ProviderAdapterV2Event["type"] = "turn.terminal",
+): boolean => {
+  if (event.type === "plan.updated") capture.plans.push(event.plan);
+  if (event.type === "node.updated" && event.node.kind === "todo_list")
+    capture.nodes.push(event.node);
+  if (event.type === "turn_item.updated" && event.turnItem.type === "todo_list") {
+    capture.items.push(event.turnItem);
+  }
+  if (event.type === "provider_turn.updated") capture.turns.push(event.providerTurn);
+  if (event.type === "provider_thread.updated") capture.threads.push(event.providerThread);
+  if (event.type === "provider_session.updated") capture.sessions.push(event.providerSession);
+  return event.type === stop;
+};
+
 describe("PiAdapterV2", () => {
   it.effect("keeps native image bytes and the saved path in the prompt", () =>
     Effect.gen(function* () {
@@ -652,6 +720,955 @@ describe("PiAdapterV2", () => {
       }).pipe(Effect.scoped, Effect.provide(layerTest)),
   );
 
+  it.effect(
+    "retains background commands after foreground settlement and supports explicit waits",
+    () =>
+      Effect.gen(function* () {
+        const fake = yield* makeFakePi;
+        const { runtime, takeEvent } = yield* openRuntime(fake);
+        const providerThread = yield* runtime.ensureThread({
+          threadId: THREAD_ID,
+          modelSelection: modelSelection("default"),
+          runtimePolicy,
+        });
+        yield* startTurn(runtime, providerThread);
+        yield* fake.takeRequest("prompt");
+        yield* takeEvent(
+          (event) =>
+            event.type === "provider_thread.updated" && event.providerThread.status === "active",
+        );
+        yield* fake.emit({ type: "agent_start" });
+        yield* fake.emit({
+          type: "extension_ui_request",
+          method: "setWidget",
+          widgetKey: "t3:background-tasks:v1",
+          widgetLines: [
+            JSON.stringify({
+              schemaVersion: 1,
+              tasks: [{ id: "bg-1", command: "npm test", startTime: 1, status: "running" }],
+            }),
+          ],
+        });
+        yield* fake.emit({ type: "agent_settled" });
+        const threads: OrchestrationV2ProviderThread[] = [];
+        yield* takeEvent((event) => {
+          if (event.type === "provider_thread.updated") threads.push(event.providerThread);
+          return event.type === "turn.terminal";
+        });
+        const settled = threads.at(-1)!;
+        assert.equal(settled.status, "idle");
+        assert.deepEqual(settled.pendingBackgroundTasks, [
+          { taskId: "bg-1", kind: "command", description: "npm test" },
+        ]);
+        assert.isTrue(yield* runtime.hasPendingBackgroundWork!);
+        if (runtime.awaitBackgroundTasks === undefined)
+          return assert.fail("Pi cannot await background work");
+        const result = yield* runtime.awaitBackgroundTasks({
+          providerThread: settled,
+          taskIds: ["bg-1", "missing", "bg-1"],
+          awaited: true,
+        });
+        assert.deepEqual(result.matched, ["bg-1"]);
+        const waiting = yield* takeEvent((event) => event.type === "provider_thread.updated");
+        if (waiting.type !== "provider_thread.updated") return assert.fail("missing wait update");
+        assert.deepEqual(waiting.providerThread.pendingBackgroundTasks, [
+          { taskId: "bg-1", kind: "command", description: "npm test", awaited: true },
+        ]);
+      }).pipe(Effect.scoped, Effect.provide(layerTest)),
+  );
+
+  it.effect.each([
+    {
+      label: "one byte of output",
+      tasks: [
+        backgroundCommand("bg-1", "npm test", 1, "running", { outputBytes: 1, note: "extra" }),
+      ],
+      fields: { source: "producer" },
+      expected: [
+        { taskId: "bg-1", kind: "command" as const, description: "npm test (1 byte output)" },
+      ],
+    },
+    {
+      label: "several bytes of output",
+      tasks: [
+        backgroundCommand("bg-1", " npm test ", 1, "running", {
+          outputBytes: 2,
+          checkCount: 3,
+          lastCheckAt: 4,
+          lastOutputAt: 5,
+          completionNotificationEnabled: false,
+        }),
+      ],
+      fields: {},
+      expected: [
+        { taskId: "bg-1", kind: "command" as const, description: "npm test (2 bytes output)" },
+      ],
+    },
+    {
+      label: "a blank command with output",
+      tasks: [backgroundCommand("bg-1", " ", 1, "running", { outputBytes: 0 })],
+      fields: {},
+      expected: [
+        { taskId: "bg-1", kind: "command" as const, description: "bg-1 (0 bytes output)" },
+      ],
+    },
+    {
+      label: "a blank command without output",
+      tasks: [backgroundCommand("bg-1", "", 1)],
+      fields: {},
+      expected: [{ taskId: "bg-1", kind: "command" as const }],
+    },
+    {
+      label: "a duplicate id",
+      tasks: [
+        backgroundCommand("bg-1", "npm test", 1),
+        backgroundCommand("bg-1", "other", 2),
+        backgroundCommand("bg-2", "sleep 1", 1, "completed"),
+      ],
+      fields: {},
+      expected: [{ taskId: "bg-1", kind: "command" as const, description: "npm test" }],
+    },
+  ])("publishes a running background command for $label", ({ tasks, fields, expected }) =>
+    Effect.gen(function* () {
+      const fake = yield* makeFakePi;
+      const { runtime, takeEvent } = yield* openRuntime(fake);
+      const providerThread = yield* runtime.ensureThread({
+        threadId: THREAD_ID,
+        modelSelection: modelSelection("default"),
+        runtimePolicy,
+      });
+      yield* takeEvent(
+        (event) =>
+          event.type === "provider_thread.updated" && event.providerThread === providerThread,
+      );
+      yield* fake.emit(backgroundSnapshot(tasks, fields));
+      const updated = yield* takeEvent((event) => event.type === "provider_thread.updated");
+      assert.deepEqual(
+        updated.type === "provider_thread.updated" && updated.providerThread.pendingBackgroundTasks,
+        expected,
+      );
+    }).pipe(Effect.scoped, Effect.provide(layerTest)),
+  );
+
+  it.effect.each([
+    {
+      label: "invalid JSON",
+      event: {
+        type: "extension_ui_request",
+        method: "setWidget",
+        widgetKey: "t3:background-tasks:v1",
+        widgetLines: ["{"],
+      },
+    },
+    {
+      label: "an unknown version",
+      event: {
+        type: "extension_ui_request",
+        method: "setWidget",
+        widgetKey: "t3:background-tasks:v1",
+        widgetLines: [JSON.stringify({ schemaVersion: 2, tasks: [] })],
+      },
+    },
+    {
+      label: "a bad status",
+      event: backgroundSnapshot([
+        backgroundCommand("bg-1", "npm test", 1, "running", { status: "paused" }),
+      ]),
+    },
+    {
+      label: "a blank id",
+      event: backgroundSnapshot([backgroundCommand(" ", "npm test", 1)]),
+    },
+    {
+      label: "negative output",
+      event: backgroundSnapshot([
+        backgroundCommand("bg-1", "npm test", 1, "running", { outputBytes: -1 }),
+      ]),
+    },
+    {
+      label: "a negative check count",
+      event: backgroundSnapshot([
+        backgroundCommand("bg-1", "npm test", 1, "running", { checkCount: -1 }),
+      ]),
+    },
+    {
+      label: "a negative check time",
+      event: backgroundSnapshot([
+        backgroundCommand("bg-1", "npm test", 1, "running", { lastCheckAt: -1 }),
+      ]),
+    },
+    {
+      label: "a non-boolean notification flag",
+      event: backgroundSnapshot([
+        backgroundCommand("bg-1", "npm test", 1, "running", {
+          completionNotificationEnabled: "yes",
+        }),
+      ]),
+    },
+    {
+      label: "two widget lines",
+      event: {
+        type: "extension_ui_request",
+        method: "setWidget",
+        widgetKey: "t3:background-tasks:v1",
+        widgetLines: [
+          JSON.stringify({ schemaVersion: 1, tasks: [] }),
+          JSON.stringify({ schemaVersion: 1, tasks: [] }),
+        ],
+      },
+    },
+    {
+      label: "a cleared widget",
+      event: {
+        type: "extension_ui_request",
+        method: "setWidget",
+        widgetKey: "t3:background-tasks:v1",
+      },
+    },
+  ])("ignores a background snapshot with $label and still settles the turn", ({ event }) =>
+    Effect.gen(function* () {
+      const fake = yield* makeFakePi;
+      const { runtime, takeEvent } = yield* openRuntime(fake);
+      const providerThread = yield* runtime.ensureThread({
+        threadId: THREAD_ID,
+        modelSelection: modelSelection("default"),
+        runtimePolicy,
+      });
+      yield* startTurn(runtime, providerThread);
+      yield* fake.takeRequest("prompt");
+      yield* fake.emit(backgroundSnapshot([backgroundCommand("bg-1", "npm test", 1)]));
+      yield* fake.emit(event);
+      yield* fake.emit({ type: "agent_start" });
+      yield* fake.emit({ type: "agent_settled" });
+      const threads: OrchestrationV2ProviderThread[] = [];
+      const terminal = yield* takeEvent((candidate) => {
+        if (candidate.type === "provider_thread.updated") threads.push(candidate.providerThread);
+        return candidate.type === "turn.terminal";
+      });
+      assert.isTrue(terminal.type === "turn.terminal" && terminal.status === "completed");
+      assert.deepEqual(threads.at(-1)?.pendingBackgroundTasks, [
+        { taskId: "bg-1", kind: "command", description: "npm test" },
+      ]);
+    }).pipe(Effect.scoped, Effect.provide(layerTest)),
+  );
+
+  it.effect.each(["completed", "failed", "killed", "omitted"] as const)(
+    "clears an awaited background command when the snapshot says it is %s",
+    (disposition) =>
+      Effect.gen(function* () {
+        const fake = yield* makeFakePi;
+        const { runtime, takeEvent } = yield* openRuntime(fake);
+        const providerThread = yield* runtime.ensureThread({
+          threadId: THREAD_ID,
+          modelSelection: modelSelection("default"),
+          runtimePolicy,
+        });
+        yield* takeEvent(
+          (event) =>
+            event.type === "provider_thread.updated" && event.providerThread === providerThread,
+        );
+        yield* fake.emit(backgroundSnapshot([backgroundCommand("bg-1", "npm test", 1)]));
+        yield* takeEvent((event) => event.type === "provider_thread.updated");
+        if (runtime.awaitBackgroundTasks === undefined)
+          return assert.fail("Pi cannot await background work");
+        yield* runtime.awaitBackgroundTasks({
+          providerThread,
+          taskIds: ["bg-1"],
+          awaited: true,
+        });
+        yield* takeEvent((event) => event.type === "provider_thread.updated");
+        yield* fake.emit(
+          backgroundSnapshot(
+            disposition === "omitted"
+              ? []
+              : [backgroundCommand("bg-1", "npm test", 1, disposition)],
+          ),
+        );
+        const cleared = yield* takeEvent((event) => event.type === "provider_thread.updated");
+        assert.deepEqual(
+          cleared.type === "provider_thread.updated" &&
+            cleared.providerThread.pendingBackgroundTasks,
+          [],
+        );
+        assert.isFalse(yield* runtime.hasPendingBackgroundWork!);
+        assert.isFalse(yield* runtime.hasPendingBackgroundWorkForThread!(providerThread));
+        yield* fake.emit(backgroundSnapshot([backgroundCommand("bg-1", "npm test", 1)]));
+        const reused = yield* takeEvent((event) => event.type === "provider_thread.updated");
+        assert.deepEqual(
+          reused.type === "provider_thread.updated" && reused.providerThread.pendingBackgroundTasks,
+          [{ taskId: "bg-1", kind: "command", description: "npm test" }],
+        );
+      }).pipe(Effect.scoped, Effect.provide(layerTest)),
+  );
+
+  it.effect(
+    "keeps an explicit wait across output progress and drops it for a replacement start",
+    () =>
+      Effect.gen(function* () {
+        const fake = yield* makeFakePi;
+        const { runtime, takeEvent } = yield* openRuntime(fake);
+        const providerThread = yield* runtime.ensureThread({
+          threadId: THREAD_ID,
+          modelSelection: modelSelection("default"),
+          runtimePolicy,
+        });
+        yield* takeEvent(
+          (event) =>
+            event.type === "provider_thread.updated" && event.providerThread === providerThread,
+        );
+        if (runtime.awaitBackgroundTasks === undefined)
+          return assert.fail("Pi cannot await background work");
+        const awaitBackgroundTasks = runtime.awaitBackgroundTasks;
+        const roster = Effect.fnUntraced(function* () {
+          const event = yield* takeEvent(
+            (candidate) => candidate.type === "provider_thread.updated",
+          );
+          if (event.type !== "provider_thread.updated") return assert.fail("missing roster update");
+          return event.providerThread.pendingBackgroundTasks;
+        });
+        yield* fake.emit(backgroundSnapshot([backgroundCommand("bg-1", "npm test", 1)]));
+        assert.deepEqual(yield* roster(), [
+          { taskId: "bg-1", kind: "command", description: "npm test" },
+        ]);
+        const marked = yield* awaitBackgroundTasks({
+          providerThread,
+          taskIds: ["missing", "bg-1", "bg-1"],
+          awaited: true,
+        });
+        assert.deepEqual(marked.matched, ["bg-1"]);
+        assert.deepEqual(yield* roster(), [
+          { taskId: "bg-1", kind: "command", description: "npm test", awaited: true },
+        ]);
+        yield* fake.emit(
+          backgroundSnapshot([
+            backgroundCommand("bg-1", "npm test", 1, "running", { outputBytes: 4 }),
+          ]),
+        );
+        assert.deepEqual(yield* roster(), [
+          {
+            taskId: "bg-1",
+            kind: "command",
+            description: "npm test (4 bytes output)",
+            awaited: true,
+          },
+        ]);
+        const released = yield* awaitBackgroundTasks({
+          providerThread,
+          taskIds: ["bg-1"],
+          awaited: false,
+        });
+        assert.deepEqual(released.matched, ["bg-1"]);
+        assert.deepEqual(yield* roster(), [
+          { taskId: "bg-1", kind: "command", description: "npm test (4 bytes output)" },
+        ]);
+        yield* awaitBackgroundTasks({ providerThread, taskIds: ["bg-1"], awaited: true });
+        yield* roster();
+        yield* fake.emit(backgroundSnapshot([backgroundCommand("bg-1", "npm test", 9)]));
+        assert.deepEqual(yield* roster(), [
+          { taskId: "bg-1", kind: "command", description: "npm test" },
+        ]);
+      }).pipe(Effect.scoped, Effect.provide(layerTest)),
+  );
+
+  it.effect("applies a startup background snapshot once the thread is bound", () =>
+    Effect.gen(function* () {
+      const fake = yield* makeFakePi;
+      fake.deferNextState();
+      const { runtime, takeEvent } = yield* openRuntime(fake);
+      const registering = yield* runtime
+        .ensureThread({
+          threadId: THREAD_ID,
+          modelSelection: modelSelection("default"),
+          runtimePolicy,
+        })
+        .pipe(Effect.forkScoped);
+      yield* fake.takeRequest("get_state");
+      yield* fake.emit(backgroundSnapshot([backgroundCommand("bg-1", "old", 1)]));
+      yield* fake.emit(
+        backgroundSnapshot([
+          backgroundCommand("bg-1", "npm test", 1, "running", { outputBytes: 2 }),
+        ]),
+      );
+      yield* fake.resolveDeferredState(recordedIdleState(FAKE_SESSION_FILE));
+      const providerThread = yield* Fiber.join(registering);
+      const expected = [
+        { taskId: "bg-1", kind: "command" as const, description: "npm test (2 bytes output)" },
+      ];
+      assert.deepEqual(providerThread.pendingBackgroundTasks, expected);
+      assert.isTrue(yield* runtime.hasPendingBackgroundWorkForThread!(providerThread));
+      const foreignThread = {
+        ...providerThread,
+        id: ProviderThreadId.make("foreign-provider-thread"),
+      };
+      assert.isFalse(yield* runtime.hasPendingBackgroundWorkForThread!(foreignThread));
+      if (runtime.awaitBackgroundTasks === undefined)
+        return assert.fail("Pi cannot await background work");
+      assert.deepEqual(
+        (yield* runtime.awaitBackgroundTasks({
+          providerThread: foreignThread,
+          taskIds: ["bg-1"],
+          awaited: true,
+        })).matched,
+        [],
+      );
+      assert.deepEqual(
+        (yield* runtime.awaitBackgroundTasks({
+          providerThread: {
+            ...providerThread,
+            nativeThreadRef: {
+              driver: PI_PROVIDER,
+              nativeId: "/fake/other.jsonl",
+              strength: "strong",
+            },
+          },
+          taskIds: ["bg-1"],
+          awaited: true,
+        })).matched,
+        [],
+      );
+      const switches = fake
+        .allRequests()
+        .filter((request) => request.type === "switch_session").length;
+      const resumed = yield* runtime.resumeThread({ providerThread });
+      assert.deepEqual(resumed.pendingBackgroundTasks, expected);
+      assert.equal(
+        fake.allRequests().filter((request) => request.type === "switch_session").length,
+        switches,
+      );
+      for (const nativeId of [FAKE_SESSION_FILE, "/fake/other.jsonl"]) {
+        const rejected = yield* runtime
+          .ensureThread({
+            threadId: ThreadId.make("other-thread"),
+            modelSelection: modelSelection("default"),
+            runtimePolicy,
+            existingProviderThread: {
+              ...providerThread,
+              id: ProviderThreadId.make("other-provider-thread"),
+              appThreadId: ThreadId.make("other-thread"),
+              nativeThreadRef: { driver: PI_PROVIDER, nativeId, strength: "strong" },
+            },
+          })
+          .pipe(Effect.flip);
+        assert.equal(rejected._tag, "ProviderAdapterEnsureThreadError");
+        assert.match(String(rejected.cause), /background commands belong to the current session/);
+        assert.equal(
+          fake.allRequests().filter((request) => request.type === "switch_session").length,
+          switches,
+        );
+      }
+      yield* startTurn(runtime, { ...resumed, pendingBackgroundTasks: [] });
+      const active = yield* takeEvent(
+        (event) =>
+          event.type === "provider_thread.updated" && event.providerThread.status === "active",
+      );
+      assert.deepEqual(
+        active.type === "provider_thread.updated" && active.providerThread.pendingBackgroundTasks,
+        expected,
+      );
+      yield* fake.takeRequest("prompt");
+      yield* fake.emit({ type: "agent_settled" });
+      const terminal = yield* takeEvent((event) => event.type === "turn.terminal");
+      assert.isTrue(terminal.type === "turn.terminal" && terminal.status === "completed");
+    }).pipe(Effect.scoped, Effect.provide(layerTest)),
+  );
+
+  it.effect("projects a Pi task board onto one stable todo list", () =>
+    Effect.gen(function* () {
+      const offers =
+        yield* Queue.unbounded<ProviderContinuationRequests.ProviderContinuationRequest>();
+      const fake = yield* makeFakePi;
+      fake.deferNextState();
+      const { runtime, takeEvent } = yield* openRuntime(
+        fake,
+        "default",
+        THREAD_ID,
+        SESSION_ID,
+        undefined,
+        { offer: (request) => Queue.offer(offers, request).pipe(Effect.asVoid) },
+      );
+      const registering = yield* runtime
+        .ensureThread({
+          threadId: THREAD_ID,
+          modelSelection: modelSelection("default"),
+          runtimePolicy,
+        })
+        .pipe(Effect.forkScoped);
+      yield* fake.takeRequest("get_state");
+      yield* fake.emit(
+        taskSnapshot(
+          [
+            {
+              id: "1",
+              subject: "  Build  ",
+              status: "pending",
+              activeForm: "Hidden",
+              note: "strip",
+            },
+          ],
+          { source: "producer" },
+        ),
+      );
+      yield* fake.resolveDeferredState(recordedIdleState(FAKE_SESSION_FILE));
+      const providerThread = yield* Fiber.join(registering);
+      const restored = [{ id: "1", text: "Build", status: "pending" as const }];
+      const edited = [
+        { id: "1", text: "Build", status: "pending" as const },
+        { id: "2", text: "Testing", status: "running" as const },
+        { id: "3", text: "Task 3", status: "completed" as const },
+        { id: "4", text: "Done", status: "running" as const },
+      ];
+      const completed = [
+        { id: "1", text: "Build", status: "completed" as const },
+        { id: "2", text: "Test", status: "completed" as const },
+        { id: "3", text: "Task 3", status: "completed" as const },
+        { id: "4", text: "Done", status: "completed" as const },
+      ];
+      const reopened = [{ id: "1", text: "Build", status: "pending" as const }];
+      const renamed = [{ id: "1", text: "Build more", status: "pending" as const }];
+      yield* startTurn(runtime, providerThread);
+      yield* fake.takeRequest("prompt");
+      yield* fake.emit(
+        taskSnapshot([
+          { id: "1", subject: "Build", status: "pending" },
+          { id: "2", subject: "Test", status: "in_progress", activeForm: "  Testing  " },
+          { id: "2", subject: "Duplicate", status: "completed" },
+          { id: "3", subject: "   ", status: "completed" },
+          { id: "4", subject: "Done", status: "in_progress", activeForm: "   " },
+        ]),
+      );
+      yield* fake.emit(
+        taskSnapshot([
+          { id: "1", subject: "Build", status: "pending" },
+          { id: "2", subject: "Test", status: "in_progress", activeForm: "Testing" },
+          { id: "3", subject: " ", status: "completed" },
+          { id: "4", subject: "Done", status: "in_progress", activeForm: "" },
+        ]),
+      );
+      yield* fake.emit(
+        taskSnapshot([
+          { id: "1", subject: "Build", status: "completed" },
+          { id: "2", subject: "Test", status: "completed", activeForm: "Testing" },
+          { id: "3", subject: " ", status: "completed" },
+          { id: "4", subject: "Done", status: "completed" },
+        ]),
+      );
+      yield* fake.emit(taskSnapshot([]));
+      yield* fake.emit(taskSnapshot([{ id: "1", subject: "Build", status: "pending" }]));
+      yield* fake.emit(taskSnapshot([{ id: "1", subject: "Build", status: "pending" }]));
+      yield* fake.emit({ type: "agent_settled" });
+      const first = captureTaskEvents();
+      const terminal = yield* takeEvent((event) => noteTaskEvent(first, event));
+      assert.equal(first.plans.length, 5);
+      assert.deepEqual(
+        first.plans.map((plan) => (plan.kind === "todo_list" ? plan.steps : plan)),
+        [restored, edited, completed, [], reopened],
+      );
+      assert.deepEqual(
+        first.plans.map((plan) => plan.status),
+        ["active", "active", "completed", "completed", "active"],
+      );
+      const planId = first.plans[0]!.id;
+      const nativeItemId = `${first.turns[0]!.id}:task-list`;
+      for (const [index, plan] of first.plans.entries()) {
+        assert.equal(plan.kind, "todo_list");
+        assert.equal(plan.id, planId);
+        assert.equal(first.nodes[index]?.status, "completed");
+        assert.equal(first.nodes[index]?.countsForRun, false);
+        assert.equal(first.nodes[index]?.id, first.nodes[0]?.id);
+        assert.equal(first.items[index]?.status, "completed");
+        assert.equal(first.items[index]?.title, null);
+        assert.equal(first.items[index]?.id, first.items[0]?.id);
+        assert.equal(first.items[index]?.planId, planId);
+        assert.equal(first.items[index]?.ordinal, first.items[0]?.ordinal);
+        assert.equal(first.items[index]?.nativeItemRef?.nativeId, nativeItemId);
+        assert.equal(first.nodes[index]?.providerTurnId, first.turns[0]?.id);
+      }
+      assert.deepEqual(first.plans[0]?.kind === "todo_list" ? first.plans[0].steps : [], restored);
+      assert.deepEqual(first.plans[1]?.kind === "todo_list" ? first.plans[1].steps : [], edited);
+      assert.deepEqual(first.plans[2]?.kind === "todo_list" ? first.plans[2].steps : [], completed);
+      assert.deepEqual(first.plans[3]?.kind === "todo_list" ? first.plans[3].steps : [], []);
+      assert.deepEqual(first.plans[4]?.kind === "todo_list" ? first.plans[4].steps : [], reopened);
+      assert.isTrue(terminal.type === "turn.terminal" && terminal.status === "completed");
+      assert.equal(first.threads.at(-1)?.status, "idle");
+      assert.deepEqual(first.threads.at(-1)?.pendingBackgroundTasks, []);
+      assert.isFalse(yield* runtime.hasPendingBackgroundWork!);
+      assert.isFalse(yield* runtime.hasPendingBackgroundWorkForThread!(providerThread));
+      assert.equal(yield* Queue.size(offers), 0);
+      const planning = first.sessions.at(-1)?.capabilities.planning;
+      assert.equal(planning?.emitsPlanUpdated, true);
+      assert.equal(planning?.emitsTodoList, true);
+      assert.equal(planning?.emitsProposedPlan, false);
+      assert.equal(planning?.planDeltasHaveItemIds, false);
+
+      yield* fake.emit(taskSnapshot([{ id: "1", subject: " Build more ", status: "pending" }]));
+      const idle = captureTaskEvents();
+      yield* takeEvent((event) => noteTaskEvent(idle, event, "turn_item.updated"));
+      assert.equal(idle.plans[0]?.id, planId);
+      assert.equal(idle.plans[0]?.status, "active");
+      assert.deepEqual(idle.plans[0]?.kind === "todo_list" ? idle.plans[0].steps : [], renamed);
+      assert.equal(idle.items[0]?.id, first.items[0]?.id);
+      assert.equal(idle.items[0]?.nativeItemRef?.nativeId, nativeItemId);
+      assert.equal(idle.nodes[0]?.countsForRun, false);
+      yield* fake.emit(taskSnapshot([{ id: "1", subject: "Build more", status: "pending" }]));
+      yield* startTurn(runtime, providerThread, "default", [], "Second", undefined, 2);
+      yield* fake.takeRequest("prompt");
+      yield* fake.emit({ type: "agent_settled" });
+      const second = captureTaskEvents();
+      const nextTerminal = yield* takeEvent((event) => noteTaskEvent(second, event));
+      assert.equal(second.plans.length, 2);
+      assert.equal(second.plans[0]?.id, planId);
+      assert.equal(second.plans[0]?.status, "superseded");
+      assert.deepEqual(second.plans[0]?.kind === "todo_list" ? second.plans[0].steps : [], renamed);
+      const nextTurnId = second.turns.find((turn) => turn.id !== first.turns[0]?.id)?.id;
+      assert.equal(second.plans[1]?.status, "active");
+      assert.notEqual(second.plans[1]?.id, planId);
+      assert.deepEqual(second.plans[1]?.kind === "todo_list" ? second.plans[1].steps : [], renamed);
+      assert.equal(second.items[0]?.planId, second.plans[1]?.id);
+      assert.equal(second.items[0]?.nativeItemRef?.nativeId, `${nextTurnId}:task-list`);
+      assert.notEqual(second.items[0]?.id, first.items[0]?.id);
+      assert.equal(second.nodes[0]?.status, "completed");
+      assert.equal(second.nodes[0]?.countsForRun, false);
+      assert.equal(second.nodes[0]?.providerTurnId, nextTurnId);
+      assert.isTrue(nextTerminal.type === "turn.terminal" && nextTerminal.status === "completed");
+      assert.deepEqual(second.threads.at(-1)?.pendingBackgroundTasks, []);
+      assert.isFalse(yield* runtime.hasPendingBackgroundWork!);
+      assert.equal(yield* Queue.size(offers), 0);
+    }).pipe(Effect.scoped, Effect.provide(layerTest)),
+  );
+
+  it.effect("does not open a todo card for an empty task board", () =>
+    Effect.gen(function* () {
+      const fake = yield* makeFakePi;
+      fake.deferNextState();
+      const { runtime, takeEvent } = yield* openRuntime(fake);
+      const registering = yield* runtime
+        .ensureThread({
+          threadId: THREAD_ID,
+          modelSelection: modelSelection("default"),
+          runtimePolicy,
+        })
+        .pipe(Effect.forkScoped);
+      yield* fake.takeRequest("get_state");
+      yield* fake.emit(taskSnapshot([]));
+      yield* fake.resolveDeferredState(recordedIdleState(FAKE_SESSION_FILE));
+      const providerThread = yield* Fiber.join(registering);
+      yield* startTurn(runtime, providerThread);
+      yield* fake.takeRequest("prompt");
+      yield* fake.emit(taskSnapshot([{ id: "1", subject: "Build", status: "pending" }]));
+      yield* fake.emit(taskSnapshot([{ id: "1", subject: "Build", status: "pending" }]));
+      yield* fake.emit({ type: "agent_settled" });
+      const capture = captureTaskEvents();
+      const terminal = yield* takeEvent((event) => noteTaskEvent(capture, event));
+      assert.equal(capture.plans.length, 1);
+      assert.deepEqual(capture.plans[0]?.kind === "todo_list" ? capture.plans[0].steps : [], [
+        { id: "1", text: "Build", status: "pending" },
+      ]);
+      assert.isTrue(terminal.type === "turn.terminal" && terminal.status === "completed");
+      assert.deepEqual(capture.threads.at(-1)?.pendingBackgroundTasks, []);
+      assert.isFalse(yield* runtime.hasPendingBackgroundWork!);
+    }).pipe(Effect.scoped, Effect.provide(layerTest)),
+  );
+
+  it.effect.each([
+    {
+      label: "invalid JSON",
+      event: {
+        type: "extension_ui_request",
+        method: "setWidget",
+        widgetKey: "t3:tasks:v1",
+        widgetLines: ["{"],
+      },
+    },
+    {
+      label: "an unknown version",
+      event: taskSnapshot([{ id: "1", subject: "Drop", status: "pending" }], { schemaVersion: 2 }),
+    },
+    {
+      label: "a bad status",
+      event: taskSnapshot([{ id: "1", subject: "Drop", status: "deleted" }]),
+    },
+    {
+      label: "a blank id",
+      event: taskSnapshot([{ id: " ", subject: "Drop", status: "pending" }]),
+    },
+    {
+      label: "a numeric id",
+      event: taskSnapshot([{ id: 1, subject: "Drop", status: "pending" }]),
+    },
+    {
+      label: "a numeric active form",
+      event: taskSnapshot([{ id: "1", subject: "Drop", status: "pending", activeForm: 4 }]),
+    },
+    {
+      label: "a missing subject",
+      event: taskSnapshot([{ id: "1", status: "pending" }]),
+    },
+    {
+      label: "tasks that are not a list",
+      event: {
+        type: "extension_ui_request",
+        method: "setWidget",
+        widgetKey: "t3:tasks:v1",
+        widgetLines: [JSON.stringify({ schemaVersion: 1, tasks: { id: "1" } })],
+      },
+    },
+    {
+      label: "two widget lines",
+      event: {
+        type: "extension_ui_request",
+        method: "setWidget",
+        widgetKey: "t3:tasks:v1",
+        widgetLines: [
+          JSON.stringify({ schemaVersion: 1, tasks: [] }),
+          JSON.stringify({ schemaVersion: 1, tasks: [] }),
+        ],
+      },
+    },
+    {
+      label: "a cleared widget",
+      event: {
+        type: "extension_ui_request",
+        method: "setWidget",
+        widgetKey: "t3:tasks:v1",
+      },
+    },
+  ])("ignores a task snapshot with $label and keeps the last board", ({ event }) =>
+    Effect.gen(function* () {
+      const fake = yield* makeFakePi;
+      const { runtime, takeEvent } = yield* openRuntime(fake);
+      const providerThread = yield* runtime.ensureThread({
+        threadId: THREAD_ID,
+        modelSelection: modelSelection("default"),
+        runtimePolicy,
+      });
+      const kept = [{ id: "1", text: "Keep", status: "pending" as const }];
+      yield* startTurn(runtime, providerThread);
+      yield* fake.takeRequest("prompt");
+      yield* fake.emit(taskSnapshot([{ id: "1", subject: "Keep", status: "pending" }]));
+      yield* fake.emit(event);
+      yield* fake.emit({ type: "agent_settled" });
+      const capture = captureTaskEvents();
+      const terminal = yield* takeEvent((event) => noteTaskEvent(capture, event));
+      assert.equal(capture.plans.length, 1);
+      assert.deepEqual(capture.plans[0]?.kind === "todo_list" ? capture.plans[0].steps : [], kept);
+      assert.equal(capture.plans[0]?.status, "active");
+      assert.isTrue(terminal.type === "turn.terminal" && terminal.status === "completed");
+      assert.isFalse(yield* runtime.hasPendingBackgroundWork!);
+    }).pipe(Effect.scoped, Effect.provide(layerTest)),
+  );
+
+  it.effect("applies a task snapshot during a native wake without another continuation", () =>
+    Effect.gen(function* () {
+      const offers =
+        yield* Queue.unbounded<ProviderContinuationRequests.ProviderContinuationRequest>();
+      const fake = yield* makeFakePi;
+      const { runtime, takeEvent } = yield* openRuntime(
+        fake,
+        "default",
+        THREAD_ID,
+        SESSION_ID,
+        undefined,
+        { offer: (request) => Queue.offer(offers, request).pipe(Effect.asVoid) },
+      );
+      const providerThread = yield* runtime.ensureThread({
+        threadId: THREAD_ID,
+        modelSelection: modelSelection("default"),
+        runtimePolicy,
+      });
+      yield* startTurn(runtime, providerThread);
+      yield* fake.takeRequest("prompt");
+      yield* fake.emit(taskSnapshot([{ id: "1", subject: "Keep", status: "pending" }]));
+      yield* fake.emit({ type: "agent_settled" });
+      const first = captureTaskEvents();
+      yield* takeEvent((event) => noteTaskEvent(first, event));
+      assert.equal(first.plans.length, 1);
+      assert.equal(yield* Queue.size(offers), 0);
+      yield* fake.emit({ type: "agent_start" });
+      yield* fake.emit(
+        taskSnapshot([
+          { id: "1", subject: "Changed", status: "in_progress", activeForm: "Changing" },
+        ]),
+      );
+      yield* fake.emit(backgroundSnapshot([backgroundCommand("bg-1", "npm test", 1)]));
+      const woken = captureTaskEvents();
+      yield* takeEvent((event) => noteTaskEvent(woken, event, "provider_thread.updated"));
+      assert.equal(woken.plans.length, 1);
+      assert.equal(woken.plans[0]?.id, first.plans[0]?.id);
+      assert.deepEqual(woken.plans[0]?.kind === "todo_list" ? woken.plans[0].steps : [], [
+        { id: "1", text: "Changing", status: "running" },
+      ]);
+      assert.equal(yield* Queue.size(offers), 1);
+      assert.isTrue(yield* runtime.hasPendingBackgroundWork!);
+    }).pipe(Effect.scoped, Effect.provide(layerTest)),
+  );
+
+  it.effect.each([
+    { sameAppThread: false, reuseProviderId: false },
+    { sameAppThread: true, reuseProviderId: false },
+    { sameAppThread: true, reuseProviderId: true },
+  ])(
+    "drops a task board when the native binding changes, same app=$sameAppThread, same provider=$reuseProviderId",
+    ({ sameAppThread, reuseProviderId }) =>
+      Effect.gen(function* () {
+        const fake = yield* makeFakePi;
+        const { runtime, takeEvent } = yield* openRuntime(fake);
+        const providerThread = yield* runtime.ensureThread({
+          threadId: THREAD_ID,
+          modelSelection: modelSelection("default"),
+          runtimePolicy,
+        });
+        yield* startTurn(runtime, providerThread);
+        yield* fake.takeRequest("prompt");
+        yield* fake.emit(taskSnapshot([{ id: "1", subject: "Secret", status: "pending" }]));
+        yield* fake.emit({ type: "agent_settled" });
+        const first = captureTaskEvents();
+        yield* takeEvent((event) => noteTaskEvent(first, event));
+        assert.equal(first.plans.length, 1);
+        const foreignThreadId = sameAppThread ? THREAD_ID : ThreadId.make("thread-pi-task-foreign");
+        const foreignSession = "/fake/foreign-tasks.jsonl";
+        const replacement = {
+          threadId: foreignThreadId,
+          modelSelection: modelSelection("default"),
+          runtimePolicy,
+          existingProviderThread: {
+            ...providerThread,
+            id: reuseProviderId
+              ? providerThread.id
+              : ProviderThreadId.make("provider-thread-foreign-tasks"),
+            appThreadId: foreignThreadId,
+            nativeThreadRef: {
+              driver: PI_PROVIDER,
+              nativeId: foreignSession,
+              strength: "strong" as const,
+            },
+          },
+        };
+        if (sameAppThread) {
+          fake.vetoNextSwitch();
+          const cancelled = yield* runtime.ensureThread(replacement).pipe(Effect.result);
+          assert.equal(cancelled._tag, "Failure");
+          const resumed = yield* runtime.ensureThread({
+            threadId: THREAD_ID,
+            modelSelection: modelSelection("default"),
+            runtimePolicy,
+            existingProviderThread: providerThread,
+          });
+          const recovery = captureTaskEvents();
+          yield* takeEvent((event) => {
+            noteTaskEvent(recovery, event);
+            return event.type === "provider_thread.updated" && event.providerThread === resumed;
+          });
+          assert.deepEqual(recovery.plans, []);
+          yield* fake.emit(
+            taskSnapshot([{ id: "1", subject: "Resumed board", status: "pending" }]),
+          );
+          const idle = captureTaskEvents();
+          yield* takeEvent((event) => noteTaskEvent(idle, event, "turn_item.updated"));
+          assert.equal(idle.plans[0]?.id, first.plans[0]?.id);
+          assert.equal(idle.items[0]?.id, first.items[0]?.id);
+        }
+        fake.queueState({ sessionFile: foreignSession });
+        const foreign = yield* runtime.ensureThread(replacement);
+        yield* startTurn(runtime, foreign, "default", [], "Foreign", undefined, 2, foreignThreadId);
+        yield* fake.takeRequest("prompt");
+        yield* fake.emit(
+          taskSnapshot([
+            { id: "2", subject: "Foreign", status: "in_progress", activeForm: "Working" },
+          ]),
+        );
+        yield* fake.emit({ type: "agent_settled" });
+        const second = captureTaskEvents();
+        const terminal = yield* takeEvent((event) => noteTaskEvent(second, event));
+        assert.equal(second.plans.length, sameAppThread ? 2 : 1);
+        if (sameAppThread) {
+          assert.equal(second.plans[0]?.id, first.plans[0]?.id);
+          assert.equal(second.plans[0]?.status, "superseded");
+        }
+        const nextPlan = second.plans.at(-1);
+        assert.notEqual(nextPlan?.id, first.plans[0]?.id);
+        assert.equal(nextPlan?.status, "active");
+        assert.deepEqual(nextPlan?.kind === "todo_list" ? nextPlan.steps : [], [
+          { id: "2", text: "Working", status: "running" },
+        ]);
+        assert.equal(second.nodes[0]?.countsForRun, false);
+        assert.isTrue(terminal.type === "turn.terminal" && terminal.status === "completed");
+        assert.deepEqual(second.threads.at(-1)?.pendingBackgroundTasks, []);
+        assert.isFalse(yield* runtime.hasPendingBackgroundWork!);
+      }).pipe(Effect.scoped, Effect.provide(layerTest)),
+  );
+
+  it.effect(
+    "adopts one native wake after background snapshots without scheduling a second turn",
+    () =>
+      Effect.gen(function* () {
+        const fake = yield* makeFakePi;
+        const offers =
+          yield* Queue.unbounded<ProviderContinuationRequests.ProviderContinuationRequest>();
+        const { runtime, takeEvent } = yield* openRuntime(
+          fake,
+          "default",
+          THREAD_ID,
+          SESSION_ID,
+          undefined,
+          { offer: (request) => Queue.offer(offers, request).pipe(Effect.asVoid) },
+        );
+        const providerThread = yield* runtime.ensureThread({
+          threadId: THREAD_ID,
+          modelSelection: modelSelection("default"),
+          runtimePolicy,
+        });
+        yield* startTurn(runtime, providerThread);
+        yield* fake.takeRequest("prompt");
+        yield* fake.emit({ type: "agent_start" });
+        yield* fake.emit({ type: "agent_settled" });
+        yield* takeEvent((event) => event.type === "turn.terminal");
+        yield* fake.emit(backgroundSnapshot([backgroundCommand("bg-1", "npm test", 1)]));
+        const listed = yield* takeEvent((event) => event.type === "provider_thread.updated");
+        assert.deepEqual(
+          listed.type === "provider_thread.updated" && listed.providerThread.pendingBackgroundTasks,
+          [{ taskId: "bg-1", kind: "command", description: "npm test" }],
+        );
+        assert.equal(yield* Queue.size(offers), 0);
+        yield* fake.emit({ type: "agent_start" });
+        const wake = yield* Queue.take(offers);
+        yield* fake.emit({ type: "agent_start" });
+        yield* fake.emit(
+          backgroundSnapshot([backgroundCommand("bg-1", "npm test", 1, "completed")]),
+        );
+        const cleared = yield* takeEvent((event) => event.type === "provider_thread.updated");
+        assert.deepEqual(
+          cleared.type === "provider_thread.updated" &&
+            cleared.providerThread.pendingBackgroundTasks,
+          [],
+        );
+        assert.equal(yield* Queue.size(offers), 0);
+        assert.isTrue(yield* runtime.hasPendingBackgroundWorkForThread!(providerThread));
+        yield* fake.emit({ type: "message_start", message: { role: "assistant" } });
+        yield* fake.emit({
+          type: "message_update",
+          assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: "Still one wake" },
+        });
+        yield* fake.emit({ type: "message_end", message: { role: "assistant" } });
+        yield* fake.emit({ type: "agent_settled" });
+        yield* wake.dispatchIfCurrent!(Effect.void);
+        yield* startTurn(
+          runtime,
+          providerThread,
+          "default",
+          [],
+          "Synthetic wake",
+          undefined,
+          2,
+          THREAD_ID,
+          true,
+        );
+        const message = yield* takeEvent((event) => event.type === "message.updated");
+        assert.equal(message.type === "message.updated" && message.message.text, "Still one wake");
+        yield* takeEvent((event) => event.type === "turn.terminal");
+        assert.equal(fake.allRequests().filter((request) => request.type === "prompt").length, 1);
+      }).pipe(Effect.scoped, Effect.provide(layerTest)),
+  );
+
   it.effect.each([false, true])(
     "serializes rollback fork hooks with native wake ownership, wake=%s",
     (nativeWake) =>
@@ -764,6 +1781,9 @@ describe("PiAdapterV2", () => {
           assert.isFalse(fake.allRequests().some((request) => request["type"] === "prompt"));
           return;
         }
+        yield* fake.emit(
+          taskSnapshot([{ id: "restored", subject: "Restored board", status: "pending" }]),
+        );
         fake.queueState({ sessionFile: "/fake/rolled-back-session.jsonl" });
         yield* fake.emit({
           type: "response",
@@ -785,8 +1805,13 @@ describe("PiAdapterV2", () => {
         yield* fake.emit({ type: "response", command: "prompt", success: true });
         yield* fake.emit({ type: "agent_start" });
         yield* fake.emit({ type: "agent_settled" });
-        const terminal = yield* takeEvent((event) => event.type === "turn.terminal");
+        const restored = captureTaskEvents();
+        const terminal = yield* takeEvent((event) => noteTaskEvent(restored, event));
         assert.isTrue(terminal.type === "turn.terminal" && terminal.status === "completed");
+        assert.equal(restored.plans.length, 1);
+        assert.deepEqual(restored.plans[0]?.kind === "todo_list" ? restored.plans[0].steps : [], [
+          { id: "restored", text: "Restored board", status: "pending" },
+        ]);
       }).pipe(Effect.scoped, Effect.provide(layerTest)),
   );
 
@@ -3232,7 +4257,8 @@ describe("PiAdapterV2", () => {
           if (item.type !== "turn_item.updated" || item.turnItem.type !== "user_input_request")
             return assert.fail("missing question");
           assert.equal(item.turnItem.title, "Which option?");
-          assert.equal(item.turnItem.questions[0]?.header, "Which option?");
+          assert.equal(item.turnItem.questions[0]?.question, "Which option?");
+          assert.notEqual(item.turnItem.questions[0]?.header, item.turnItem.questions[0]?.question);
           assert.equal(item.turnItem.questions[0]?.allowCustomAnswer, false);
           dialogs.push(item.turnItem);
         }
