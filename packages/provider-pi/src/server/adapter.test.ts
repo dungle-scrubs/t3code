@@ -4260,6 +4260,7 @@ describe("PiAdapterV2", () => {
           assert.equal(item.turnItem.questions[0]?.question, "Which option?");
           assert.notEqual(item.turnItem.questions[0]?.header, item.turnItem.questions[0]?.question);
           assert.equal(item.turnItem.questions[0]?.allowCustomAnswer, false);
+          assert.equal(item.turnItem.responseMode, "message");
           dialogs.push(item.turnItem);
         }
         yield* fake.emit({
@@ -4269,10 +4270,18 @@ describe("PiAdapterV2", () => {
           title: "Ordinary dialog",
           options: ["Yes"],
         });
-        yield* takeEvent(
+        const ordinary = yield* takeEvent(
           (event) =>
-            event.type === "turn_item.updated" && event.turnItem.type === "user_input_request",
+            event.type === "turn_item.updated" &&
+            event.turnItem.type === "user_input_request" &&
+            event.turnItem.nativeItemRef?.nativeId === "ordinary",
         );
+        if (
+          ordinary.type !== "turn_item.updated" ||
+          ordinary.turnItem.type !== "user_input_request"
+        )
+          return assert.fail("missing ordinary dialog");
+        assert.equal(ordinary.turnItem.responseMode, undefined);
         yield* fake.emit({ type: "agent_settled" });
         yield* takeEvent((event) => event.type === "turn.terminal");
         assert.deepEqual(
@@ -4307,6 +4316,7 @@ describe("PiAdapterV2", () => {
         if (input.type !== "turn_item.updated" || input.turnItem.type !== "user_input_request")
           return assert.fail("missing custom input");
         assert.isNull(input.turnItem.providerTurnId);
+        assert.equal(input.turnItem.responseMode, "message");
         yield* runtime.respondToRuntimeRequest({
           requestId: input.turnItem.requestId,
           answers: { "async-input": "Custom answer" },

@@ -90,7 +90,9 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
     questionId: string;
     optionValue: string;
   } | null>(null);
-  const [collapsedQuestionId, setCollapsedQuestionId] = useState<string | null>(null);
+  const [collapsedQuestionId, setCollapsedQuestionId] = useState<string | null>(
+    prompt.responseMode === "message" ? (prompt.questions[0]?.id ?? null) : null,
+  );
   // Keep question identity stable for its shortcut listener.
   const progress = derivePendingUserInputProgress(prompt.questions, answers, questionIndex);
   const activeQuestion = progress.activeQuestion;

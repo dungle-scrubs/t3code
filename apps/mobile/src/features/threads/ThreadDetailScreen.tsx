@@ -913,7 +913,11 @@ function ThreadDetailBody(props: ThreadDetailScreenProps) {
     );
   const userInputToggled =
     userInputToggle !== null && userInputToggle.requestId === activeUserInputRequestId;
-  const userInputCollapsed = userInputToggled && userInputToggle.collapsed;
+  const messageModeQuestion = props.activePendingUserInput?.responseMode === "message";
+  const userInputCollapsed =
+    userInputToggle !== null && userInputToggle.requestId === activeUserInputRequestId
+      ? userInputToggle.collapsed
+      : messageModeQuestion;
   // A height React sets from keyboard state lags the sticky translation by a Yoga pass and
   // flashes over the nav header on the way up, so the usage panel reserves the keyboard instead.
   const [lastKnownKeyboardHeight, setLastKnownKeyboardHeight] = useState(0);
@@ -992,9 +996,11 @@ function ThreadDetailBody(props: ThreadDetailScreenProps) {
         USAGE_LIMITS_PANEL_GAP * 2,
     ),
   );
-  // A toggle animates the card; a new request starts expanded at once.
+  // A toggle animates the card. A blocking request starts expanded; an async one starts as the bar.
   const userInputMotion = !userInputToggled
-    ? "fresh"
+    ? messageModeQuestion
+      ? "collapsed"
+      : "fresh"
     : userInputCollapsed
       ? "collapsed"
       : "expanded";

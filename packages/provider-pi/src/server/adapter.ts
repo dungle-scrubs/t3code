@@ -1835,6 +1835,8 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
                       : {}),
                   },
                 ],
+                // Message mode keeps the answer on the live dialog and tells clients to start collapsed.
+                ...(asyncQuestionId === null ? {} : { responseMode: "message" as const }),
               };
         const pending: PendingPiPrompt = {
           nativeRequestId,
