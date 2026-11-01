@@ -866,8 +866,11 @@ function ThreadDetailBody(props: ThreadDetailScreenProps) {
     readonly collapsed: boolean;
   } | null>(null);
   const activeUserInputRequestId = props.activePendingUserInput?.requestId ?? null;
+  // A message-mode question is answered in its card while the composer stays usable.
+  const blockingUserInputRequestId =
+    props.activePendingUserInput?.responseMode === "message" ? null : activeUserInputRequestId;
   const composerSlotHidden =
-    activeUserInputRequestId !== null || props.creationState?.kind === "failed";
+    blockingUserInputRequestId !== null || props.creationState?.kind === "failed";
   const pendingMessageEditBlocked =
     queuedRunEditBlockedReason({ openQuestionCount: activeUserInputRequestId === null ? 0 : 1 }) !==
     null;
@@ -913,11 +916,7 @@ function ThreadDetailBody(props: ThreadDetailScreenProps) {
     );
   const userInputToggled =
     userInputToggle !== null && userInputToggle.requestId === activeUserInputRequestId;
-  const messageModeQuestion = props.activePendingUserInput?.responseMode === "message";
-  const userInputCollapsed =
-    userInputToggle !== null && userInputToggle.requestId === activeUserInputRequestId
-      ? userInputToggle.collapsed
-      : messageModeQuestion;
+  const userInputCollapsed = userInputToggled && userInputToggle.collapsed;
   // A height React sets from keyboard state lags the sticky translation by a Yoga pass and
   // flashes over the nav header on the way up, so the usage panel reserves the keyboard instead.
   const [lastKnownKeyboardHeight, setLastKnownKeyboardHeight] = useState(0);
@@ -960,7 +959,7 @@ function ThreadDetailBody(props: ThreadDetailScreenProps) {
       windowHeight: screenAreaHeight,
       keyboardHeight: keyboardStickyEnabled ? -keyboardTranslation.value : 0,
       navigationHeaderHeight,
-      composerOverlapHeight: composerBottomInset,
+      composerOverlapHeight: composerSlotHidden ? composerBottomInset : composerOverlapHeight,
     }),
   );
   // The usage panel stacks with the composer and any approval card, so it gets
@@ -996,11 +995,9 @@ function ThreadDetailBody(props: ThreadDetailScreenProps) {
         USAGE_LIMITS_PANEL_GAP * 2,
     ),
   );
-  // A toggle animates the card. A blocking request starts expanded; an async one starts as the bar.
+  // A toggle animates the card; a new request starts expanded at once.
   const userInputMotion = !userInputToggled
-    ? messageModeQuestion
-      ? "collapsed"
-      : "fresh"
+    ? "fresh"
     : userInputCollapsed
       ? "collapsed"
       : "expanded";
@@ -1192,7 +1189,7 @@ function ThreadDetailBody(props: ThreadDetailScreenProps) {
     // empty submit, a queued-message edit, or `/feedback` leaves approvals alone.
     const approvalsToDecline = props.activePendingApprovals;
     const declineBeforeDispatch =
-      approvalsToDecline.length > 0 && props.activePendingUserInput === null
+      approvalsToDecline.length > 0 && blockingUserInputRequestId === null
         ? async (text: string, hasAttachmentsOrContext: boolean) => {
             if (scope.aborted || stillSendable?.() === false || props.respondingApprovalId !== null)
               return false;
@@ -1589,7 +1586,7 @@ function ThreadDetailBody(props: ThreadDetailScreenProps) {
                     <Animated.View
                       className="shrink-0 gap-3 px-4 pb-3"
                       style={
-                        activeUserInputRequestId !== null
+                        blockingUserInputRequestId !== null
                           ? { paddingBottom: composerBottomInset }
                           : undefined
                       }

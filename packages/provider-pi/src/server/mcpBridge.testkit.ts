@@ -1,5 +1,6 @@
 // @effect-diagnostics nodeBuiltinImport:off -- Executes the shipped Pi extension at its native JavaScript boundary.
 import * as NodeEvents from "node:events";
+import * as NodeFSP from "node:fs/promises";
 import * as NodeModule from "node:module";
 import * as NodePath from "node:path";
 import * as NodeVM from "node:vm";
@@ -36,6 +37,7 @@ type AgentStartHook = (
   },
   ctx: {
     mode?: "rpc" | "tui" | "json" | "print";
+    cwd?: string;
     model?: { api: string };
     ui: {
       notify: (message: string, severity: string) => void;
@@ -121,6 +123,7 @@ export async function loadMcpBridge(
       },
     },
     AbortSignal,
+    NodeFSP,
     NodePath,
     Type: { Unsafe: (schema: unknown) => schema },
     fetch: async (

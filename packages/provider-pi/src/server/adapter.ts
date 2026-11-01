@@ -619,6 +619,7 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
         mcpSession,
         extensionPath,
         runtimeMode: input.runtimePolicy.runtimeMode,
+        trustProject: true,
       });
       const scopedLaunch = yield* agentScope.wrap({
         command: options.settings.binaryPath || "pi",
@@ -1835,7 +1836,7 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
                       : {}),
                   },
                 ],
-                // Message mode keeps the answer on the live dialog and tells clients to start collapsed.
+                // Message mode keeps the answer on the live dialog and leaves the composer free.
                 ...(asyncQuestionId === null ? {} : { responseMode: "message" as const }),
               };
         const pending: PendingPiPrompt = {
@@ -3586,6 +3587,7 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
               extensionPath: undefined,
               disableExtensions: true,
               disableTools: true,
+              trustProject: true,
             });
             const nativeId = yield* Effect.scoped(
               Effect.gen(function* () {

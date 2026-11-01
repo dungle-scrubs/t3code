@@ -48,3 +48,7 @@ node_modules/
 
 # pnpm content-addressable store; never belongs in the repo.
 .pnpm-store/
+
+# Machine-local agent instructions. They stay on disk and out of commits.
+AGENTS.local.md
+CLAUDE.local.md

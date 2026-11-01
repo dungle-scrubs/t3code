@@ -202,6 +202,26 @@ describe("Pi MCP tool exposure", () => {
     assert.equal(bridge.requests.at(-1)?.method, "tools/call");
   });
 
+  it("appends AGENTS.local.md from the project root", async () => {
+    const root = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-pi-local-"));
+    const child = NodePath.join(root, "pkg");
+    await NodeFSP.mkdir(child);
+    await NodeFSP.writeFile(NodePath.join(root, ".git"), "gitdir: /tmp/unused\n");
+    await NodeFSP.writeFile(NodePath.join(root, "AGENTS.local.md"), "Fork only rule\n");
+    try {
+      const bridge = await loadMcpBridge({ modern: true });
+      const start = bridge.handlers.get("before_agent_start");
+      assert.isDefined(start);
+      const prompt = await start!(
+        { systemPrompt: "Pi system prompt" },
+        { ...discoveryContext, cwd: child },
+      );
+      assert.include(prompt?.systemPrompt ?? "", "Fork only rule");
+    } finally {
+      await NodeFSP.rm(root, { recursive: true });
+    }
+  });
+
   it("restores gateway declarations after model switches and older tree loadouts without excluded tools", async () => {
     const bridge = await loadMcpBridge({
       modern: true,

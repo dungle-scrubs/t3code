@@ -469,13 +469,7 @@ export interface ChatComposerProps {
   onAdvanceActivePendingUserInput: () => void;
   onDismissActivePendingUserInput: (requestId: RuntimeRequestId) => void;
   onPreviousActivePendingUserInputQuestion: () => void;
-  onChangeActivePendingUserInputCustomAnswer: (
-    questionId: string,
-    value: string,
-    nextCursor: number,
-    expandedCursor: number,
-    cursorAdjacentToMention: boolean,
-  ) => void;
+  onChangeActivePendingUserInputCustomAnswer: (questionId: string, value: string) => void;
 
   onProviderModelSelect: (
     instanceId: ProviderInstanceId,
@@ -497,6 +491,7 @@ export interface ChatComposerProps {
 
 const NO_PROVIDER_SKILLS: ServerProvider["skills"] = [];
 const NO_PROVIDER_SLASH_COMMANDS: ServerProvider["slashCommands"] = [];
+const NO_PENDING_USER_INPUTS: PendingUserInput[] = [];
 
 export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps) {
   const {
@@ -617,9 +612,19 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const holdingUserInput = incomingPendingUserInputs[0]
     ? heldRequestIds.has(incomingPendingUserInputs[0].requestId)
     : false;
-  const pendingUserInputs = holdingUserInput ? [] : incomingPendingUserInputs;
-  const activePendingProgress = holdingUserInput ? null : incomingPendingProgress;
-  const activePendingIsResponding = !holdingUserInput && incomingPendingIsResponding;
+  const visiblePendingUserInputs = holdingUserInput
+    ? NO_PENDING_USER_INPUTS
+    : incomingPendingUserInputs;
+  const visiblePendingIsResponding = !holdingUserInput && incomingPendingIsResponding;
+  // A message-mode question is answered in its card; only a blocking one turns the composer
+  // into its answer editor.
+  const composerAnswersQuestion =
+    visiblePendingUserInputs.length > 0 && visiblePendingUserInputs[0]?.responseMode !== "message";
+  const pendingUserInputs = composerAnswersQuestion
+    ? visiblePendingUserInputs
+    : NO_PENDING_USER_INPUTS;
+  const activePendingProgress = composerAnswersQuestion ? incomingPendingProgress : null;
+  const activePendingIsResponding = composerAnswersQuestion && visiblePendingIsResponding;
   const isLiteralPendingAnswer = activePendingProgress?.activeQuestion?.initialAnswer !== undefined;
   const isEditingQueuedMessage = editingQueuedAttachments !== null;
   const composerDraft = useComposerThreadDraft(composerDraftTarget);
@@ -1162,7 +1167,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const isChoiceOnlyPendingQuestion =
     activePendingProgress?.activeQuestion?.allowCustomAnswer === false;
   const showComposerTopDrawer =
-    pendingUserInputs.length > 0 ||
+    visiblePendingUserInputs.length > 0 ||
     (!isComposerCollapsedMobile && showPlanFollowUpPrompt && activeProposedPlan !== null);
   const showCollapsedMobilePromptRow = isComposerCollapsedMobile;
   const showComposerAttachAction =
@@ -1574,9 +1579,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       onChangeActivePendingUserInputCustomAnswer(
         activePendingProgress.activeQuestion.id,
         nextPrompt,
-        nextCursor,
-        expandedCursor,
-        cursorAdjacentToMention,
       );
       return;
     }
@@ -1750,13 +1752,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     promptRef.current = next.text;
     const activePendingQuestion = activePendingProgress?.activeQuestion;
     if (activePendingQuestion && activePendingUserInput) {
-      onChangeActivePendingUserInputCustomAnswer(
-        activePendingQuestion.id,
-        next.text,
-        nextCursor,
-        nextExpandedCursor,
-        isLiteralPendingAnswer,
-      );
+      onChangeActivePendingUserInputCustomAnswer(activePendingQuestion.id, next.text);
     } else {
       setPrompt(next.text);
       onTypingGuardDraftChange();
@@ -2718,7 +2714,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const scheduleComposerCollapseCheckStable = useStableCallback(scheduleComposerCollapseCheck);
 
   // Question dismissal unmounts focused controls without firing blur.
-  const activePendingUserInputRequestId = activePendingUserInput?.requestId ?? null;
+  const activePendingUserInputRequestId = visiblePendingUserInputs[0]?.requestId ?? null;
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- schedules the collapse check after a dismissed question unmounts focused controls without a blur
   useEffect(() => {
     if (activePendingUserInputRequestId !== null) return;
@@ -3124,20 +3120,22 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           {showComposerTopDrawer ? (
             <ComposerBanner.Attachment>
               <ComposerBanner.Root data-chat-composer-top-drawer="true" variant="info">
-                {pendingUserInputs.length > 0 ? (
+                {visiblePendingUserInputs.length > 0 ? (
                   <ComposerPendingUserInputPanel
-                    pendingUserInputs={pendingUserInputs}
+                    pendingUserInputs={visiblePendingUserInputs}
                     cwd={gitCwd ?? undefined}
                     threadRef={routeThreadRef}
                     disabled={!canOperateThread}
                     respondingRequestIds={
-                      activePendingIsResponding && activePendingUserInput
-                        ? [...respondingRequestIds, activePendingUserInput.requestId]
+                      visiblePendingIsResponding && visiblePendingUserInputs[0]
+                        ? [...respondingRequestIds, visiblePendingUserInputs[0].requestId]
                         : respondingRequestIds
                     }
                     answers={activePendingDraftAnswers}
                     questionIndex={activePendingQuestionIndex}
                     onToggleOption={onSelectActivePendingUserInputOption}
+                    onChangeCustomAnswer={onChangeActivePendingUserInputCustomAnswer}
+                    onPrevious={onPreviousActivePendingUserInputQuestion}
                     onAdvance={onAdvanceActivePendingUserInput}
                     onDismiss={onDismissActivePendingUserInput}
                   />

@@ -509,16 +509,46 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
     }
   });
 
+  async function readAgentsLocal(cwd) {
+    if (typeof cwd !== "string" || cwd.length === 0) return "";
+    const directories = [];
+    let dir = NodePath.resolve(cwd);
+    for (let depth = 0; depth < 40; depth += 1) {
+      directories.push(dir);
+      try {
+        await NodeFSP.access(NodePath.join(dir, ".git"));
+        break;
+      } catch {
+        const parent = NodePath.dirname(dir);
+        if (parent === dir) break;
+        dir = parent;
+      }
+    }
+    const parts = [];
+    for (const directory of directories.reverse()) {
+      try {
+        const text = (await NodeFSP.readFile(NodePath.join(directory, "AGENTS.local.md"), "utf8")).trim();
+        if (text.length > 0) parts.push(text);
+      } catch {
+        // This directory has no local instructions.
+      }
+    }
+    return parts.join("\\n\\n");
+  }
+
   // Keep guidance in the system prompt so leading slash commands still expand.
-  pi.on("before_agent_start", (event, ctx) => {
+  pi.on("before_agent_start", async (event, ctx) => {
     reconcileDiscovery(ctx);
+    const local = await readAgentsLocal(ctx.cwd);
     const sections = event.systemPromptOptions?.sections;
     if (sections && typeof sections === "object" && event.systemPromptOptions?.forceSystemPrompt === undefined) {
       // A full prompt override bypasses Pi's later section rendering.
       sections.t3_code_orchestration = ORCHESTRATION_INSTRUCTIONS;
+      if (local.length > 0) sections.t3_local_instructions = local;
       return undefined;
     }
-    return { systemPrompt: event.systemPrompt + "\\n\\n" + ORCHESTRATION_INSTRUCTIONS };
+    const localSuffix = local.length > 0 ? "\\n\\n" + local : "";
+    return { systemPrompt: event.systemPrompt + "\\n\\n" + ORCHESTRATION_INSTRUCTIONS + localSuffix };
   });
 }
 `;
