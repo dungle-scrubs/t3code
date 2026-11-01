@@ -66,6 +66,8 @@ function setupFixture(html: string) {
   };
 }
 
+type HintFixture = ReturnType<typeof setupFixture>;
+
 function setupController(
   onChange: (state: KeyboardHintsState) => void = () => {},
   options?: Parameters<typeof createKeyboardHintsController>[2],
@@ -393,27 +395,240 @@ describe("keyboard hint mode", () => {
     expect(controller.state.active).toBe(false);
   });
 
-  it("dismisses when the page scrolls", () => {
-    using _fixture = setupFixture(`<button id="one">One</button>`);
+  const LAYOUT_CASES: readonly [string, string, (fixture: HintFixture) => void][] = [
+    [
+      "scroll",
+      `<div id="container" style="position:fixed;left:40px;top:40px">
+        <button id="one">One</button>
+      </div>`,
+      (fixture) => {
+        fixture.element("container").style.left = "100px";
+        window.dispatchEvent(new Event("scroll"));
+      },
+    ],
+    [
+      "resize",
+      `<div id="container" style="position:fixed;left:40px;top:40px">
+        <button id="one">One</button>
+      </div>`,
+      (fixture) => {
+        fixture.element("container").style.left = "100px";
+        window.dispatchEvent(new Event("resize"));
+      },
+    ],
+    [
+      "ancestor layout",
+      `<div id="container" style="position:fixed;left:40px;top:40px">
+        <button id="one">One</button>
+      </div>`,
+      (fixture) => {
+        fixture.element("container").style.left = "100px";
+      },
+    ],
+    [
+      "target update",
+      `<div id="container" style="position:fixed;left:40px;top:40px">
+        <button id="one">One</button>
+      </div>`,
+      (fixture) => {
+        fixture.element("one").classList.add("updated");
+      },
+    ],
+    [
+      "target text",
+      `<div id="container" style="position:fixed;left:40px;top:40px">
+        <button id="one">One</button>
+      </div>`,
+      (fixture) => {
+        fixture.element("one").textContent = "One updated";
+      },
+    ],
+    [
+      "sibling resize",
+      `<div id="container" style="position:fixed;left:40px;top:40px;display:flex">
+        <div id="spacer" style="width:10px;height:10px"></div>
+        <button id="one">One</button>
+      </div>`,
+      (fixture) => {
+        fixture.element("spacer").style.width = "40px";
+      },
+    ],
+    [
+      "nested scroll",
+      `<div id="scroller" style="position:fixed;left:40px;top:40px;width:120px;height:80px;overflow:auto">
+        <div style="width:400px;height:400px"><button id="one">One</button></div>
+      </div>`,
+      (fixture) => {
+        fixture.element("scroller").scrollLeft = 20;
+      },
+    ],
+  ];
+
+  it.each(LAYOUT_CASES)("keeps labels attached after %s", async (_change, markup, apply) => {
+    using fixture = setupFixture(markup);
     using controller = setupController();
-
     controller.handleKeyDown(keydown(" ", TRIGGER));
-    window.dispatchEvent(new Event("scroll"));
+    const original = controller.state.targets.find((target) => target.element.id === "one")!;
+    expect(original).toBeDefined();
 
-    expect(controller.state.active).toBe(false);
+    apply(fixture);
+    // Let the mutation observer deliver the change before the assertions.
+    await Promise.resolve();
+
+    await vi.waitFor(() => {
+      expect(controller.state.active).toBe(true);
+      const current = controller.state.targets.find((target) => target.element.id === "one")!;
+      expect(current.label).toBe(original.label);
+      expect(current.left).toBe(fixture.element("one").getBoundingClientRect().left + 7);
+    });
   });
 
-  it("stops answering after dispose", () => {
-    using fixture = setupFixture(`<button id="one">One</button>${HOVER_ROW}`);
+  it("follows the positioning anchor when it moves", async () => {
+    using fixture = setupFixture(`
+      <div id="anchor" style="position:fixed;left:40px;top:40px;width:20px;height:20px"></div>
+      <button id="one" data-keyboard-hint-anchor-id="anchor" style="position:fixed;left:200px;top:200px">
+        One
+      </button>
+    `);
     using controller = setupController();
+    controller.handleKeyDown(keydown(" ", TRIGGER));
+    const original = controller.state.targets.find((target) => target.element.id === "one")!;
+    expect(original.left).toBe(47);
+
+    fixture.element("anchor").style.left = "140px";
+
+    await vi.waitFor(() => {
+      expect(controller.state.active).toBe(true);
+      const current = controller.state.targets.find((target) => target.element.id === "one")!;
+      expect(current.label).toBe(original.label);
+      expect(current.left).toBe(fixture.element("anchor").getBoundingClientRect().left + 7);
+    });
+  });
+
+  it.each(["before", "during"] as const)(
+    "follows a target when hint mode opens %s a CSS transition",
+    async (timing) => {
+      using fixture = setupFixture(`
+        <div id="mover" style="position:fixed;left:40px;top:40px;transition:left 100s linear">
+          <button id="one">One</button>
+        </div>
+      `);
+      using controller = setupController();
+      const mover = fixture.element("mover");
+      if (timing === "before") controller.handleKeyDown(keydown(" ", TRIGGER));
+      expect(mover.getBoundingClientRect().left).toBe(40);
+      mover.style.left = "140px";
+      await vi.waitFor(() => {
+        expect(mover.getBoundingClientRect().left).toBeGreaterThan(40);
+      });
+      const transition = mover.getAnimations()[0]!;
+      expect(transition).toBeDefined();
+      try {
+        if (timing === "during") controller.handleKeyDown(keydown(" ", TRIGGER));
+        const original = controller.state.targets.find((target) => target.element.id === "one")!;
+        transition.currentTime = 50_000;
+
+        await vi.waitFor(() => {
+          expect(controller.state.active).toBe(true);
+          const current = controller.state.targets.find((target) => target.element.id === "one")!;
+          expect(current.label).toBe(original.label);
+          expect(current.left).toBeGreaterThan(90);
+          expect(current.left).toBeLessThan(110);
+          expect(current.left).toBeCloseTo(
+            fixture.element("one").getBoundingClientRect().left + 7,
+            0,
+          );
+        });
+        transition.finish();
+        await vi.waitFor(() => {
+          expect(controller.state.targets.find((target) => target.element.id === "one")!.left).toBe(
+            147,
+          );
+        });
+      } finally {
+        transition.cancel();
+      }
+    },
+  );
+
+  it.each([
+    ["removal", (element: HTMLElement) => element.remove()],
+    ["hidden", (element: HTMLElement) => element.setAttribute("hidden", "")],
+    ["disabled", (element: HTMLElement) => element.setAttribute("disabled", "")],
+  ] as const)(
+    "keeps the other labels and the prefix when a target is lost by %s",
+    async (_case, loseTarget) => {
+      using fixture = setupFixture(visibleButtonGrid(30));
+      using controller = setupController();
+      controller.handleKeyDown(keydown(" ", TRIGGER));
+      const labels = new Map(
+        controller.state.targets.map((target) => [target.element.id, target.label]),
+      );
+
+      expect(controller.handleKeyDown(keydown("a"))).toBe(true);
+      expect(controller.state.prefix).toBe("a");
+
+      loseTarget(fixture.element("hint-grid-0"));
+
+      await vi.waitFor(() => {
+        expect(controller.state.active).toBe(true);
+        expect(controller.state.prefix).toBe("a");
+        expect(controller.state.targets.map((target) => target.element.id)).not.toContain(
+          "hint-grid-0",
+        );
+      });
+      for (const target of controller.state.targets) {
+        expect(target.label).toBe(labels.get(target.element.id));
+      }
+    },
+  );
+
+  it("labels the current controls again after a dismissal", () => {
+    using fixture = setupFixture(visibleButtonGrid(30));
+    using controller = setupController();
+    controller.handleKeyDown(keydown(" ", TRIGGER));
+    expect(controller.handleKeyDown(keydown("a"))).toBe(true);
+    expect(controller.state.prefix).toBe("a");
+
+    controller.dismiss();
+    fixture.element("hint-grid-0").remove();
+    const added = document.createElement("button");
+    added.id = "hint-grid-new";
+    added.textContent = "New";
+    added.style.position = "fixed";
+    added.style.left = "400px";
+    added.style.top = "300px";
+    added.style.width = "40px";
+    added.style.height = "20px";
+    fixture.root.append(added);
+
+    controller.handleKeyDown(keydown(" ", TRIGGER));
+
+    expect(controller.state.prefix).toBe("");
+    const ids = controller.state.targets.map((target) => target.element.id);
+    expect(ids).not.toContain("hint-grid-0");
+    expect(ids).toContain("hint-grid-new");
+  });
+
+  it("stops answering after dispose", async () => {
+    using fixture = setupFixture(`<button id="one">One</button>${HOVER_ROW}`);
+    const changes = vi.fn();
+    using controller = setupController(changes);
 
     controller.handleKeyDown(keydown(" ", TRIGGER));
     expect(opacity(fixture.element("row"))).toBe("1");
     controller.dispose();
+    const afterDispose = changes.mock.calls.length;
 
     expect(opacity(fixture.element("row"))).toBe("0");
     expect(controller.handleKeyDown(keydown(" ", TRIGGER))).toBe(false);
     expect(controller.state.active).toBe(false);
+
+    fixture.element("one").textContent = "One updated";
+    window.dispatchEvent(new Event("resize"));
+    await Promise.resolve();
+
+    expect(changes).toHaveBeenCalledTimes(afterDispose);
   });
 });
 

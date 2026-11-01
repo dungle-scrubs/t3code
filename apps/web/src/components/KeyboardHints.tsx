@@ -1,6 +1,6 @@
 import { useRouter } from "@tanstack/react-router";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { createPortal, flushSync } from "react-dom";
 
 import { useOpenLink } from "../browser/useOpenLink";
 import { useActiveProjectTarget } from "../hooks/useActiveProjectTarget";
@@ -68,9 +68,16 @@ export function KeyboardHints() {
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- keeps the hint controller registered with the shortcut dispatcher for as long as the component is mounted
   useEffect(() => {
-    const controller = createKeyboardHintsController(document, setState, {
-      resolveCommand: (key) => resolveHintCommand(key),
-    });
+    const controller = createKeyboardHintsController(
+      document,
+      (next) => {
+        // The badge positions have to land before the paint, or they trail their target.
+        flushSync(() => setState(next));
+      },
+      {
+        resolveCommand: (key) => resolveHintCommand(key),
+      },
+    );
     controllerRef.current = controller;
     const unregister = registerCommands(
       {},

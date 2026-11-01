@@ -5,6 +5,8 @@
  * while the user types, and activates the one target the typed label names.
  */
 
+import { observeResize } from "./observeResize";
+
 /** Home-row-first alphabet: the first labels are the easiest keys to reach. */
 export const KEYBOARD_HINT_ALPHABET = "asdfghjklqwertyuiopzxcvbnm";
 
@@ -44,6 +46,12 @@ export interface KeyboardHintTarget {
   readonly top: number;
   readonly placement: KeyboardHintPlacement;
   readonly size: KeyboardHintSize;
+}
+
+/** A labelled target of the current invocation. */
+interface KeyboardHintPoolEntry {
+  readonly element: HTMLElement;
+  readonly label: string;
 }
 
 export interface KeyboardHintsState {
@@ -486,9 +494,48 @@ function isOverlayMutation(record: MutationRecord): boolean {
   return false;
 }
 
+/** Whether the badge of a target still sits where it was. */
+function sameHintTargets(
+  previous: readonly KeyboardHintTarget[],
+  next: readonly KeyboardHintTarget[],
+): boolean {
+  if (previous.length !== next.length) return false;
+  for (let index = 0; index < next.length; index += 1) {
+    const before = previous[index]!;
+    const after = next[index]!;
+    if (before.element !== after.element) return false;
+    if (before.label !== after.label) return false;
+    if (before.placement !== after.placement || before.size !== after.size) return false;
+    if (before.left !== after.left) return false;
+    if (before.top !== after.top) return false;
+  }
+  return true;
+}
+
+/** The element a CSS transition animates. */
+function transitionElement(animation: CSSTransition): Element | null {
+  const target = (animation.effect as KeyframeEffect | null)?.target ?? null;
+  return target instanceof Element ? target : null;
+}
+
+/** Whether a CSS transition for the property still runs on the element. */
+function isTransitionRunning(element: Element, property: string): boolean {
+  if (typeof CSSTransition === "undefined") return false;
+  return element
+    .getAnimations()
+    .some(
+      (animation) =>
+        animation instanceof CSSTransition &&
+        animation.transitionProperty === property &&
+        animation.playState === "running",
+    );
+}
+
 /**
  * The hint mode: a trigger chord opens it, typed letters narrow the labels,
- * and the label that survives activates its target.
+ * and the label that survives activates its target. The labelled pool is fixed
+ * per invocation; later refreshes only decide which labels stay visible and
+ * where their badges sit.
  */
 export function createKeyboardHintsController(
   doc: Document,
@@ -498,20 +545,55 @@ export function createKeyboardHintsController(
   },
 ): KeyboardHintsController {
   let state: KeyboardHintsState = { active: false, prefix: "", targets: [] };
+  let pool: readonly KeyboardHintPoolEntry[] = [];
+  let scope: Element | undefined;
   let observer: MutationObserver | undefined;
+  const observed = new Set<Element>();
+  const resizeCleanups: (() => void)[] = [];
   let revealed = false;
   let disposed = false;
+  let pendingFrame: number | undefined;
+  const runningTransitions = new Map<Element, Set<string>>();
 
   const emit = () => onChange(state);
+
+  function observe(elements: readonly Element[]): void {
+    const fresh = elements.filter((element) => !observed.has(element));
+    if (fresh.length === 0) return;
+    for (const element of fresh) observed.add(element);
+    resizeCleanups.push(observeResize(fresh, onResizeObserved));
+  }
+
+  function observeWithAncestors(element: Element): void {
+    const elements: Element[] = [];
+    let current: Element | null = element;
+    while (current) {
+      elements.push(current);
+      if (current === doc.body || current === doc.documentElement) break;
+      current = current.parentElement;
+    }
+    observe(elements);
+  }
 
   function stopWatching() {
     observer?.disconnect();
     observer = undefined;
+    for (const stop of resizeCleanups) stop();
+    resizeCleanups.length = 0;
+    observed.clear();
+    runningTransitions.clear();
     const view = doc.defaultView;
+    if (pendingFrame !== undefined) {
+      view?.cancelAnimationFrame(pendingFrame);
+      pendingFrame = undefined;
+    }
     view?.removeEventListener("scroll", onScroll, true);
     view?.removeEventListener("resize", onResize);
     view?.removeEventListener("pointerdown", onPointerDown, true);
     view?.removeEventListener("blur", onBlur);
+    view?.removeEventListener("transitionrun", onTransitionRun, true);
+    view?.removeEventListener("transitionend", onTransitionSettled, true);
+    view?.removeEventListener("transitioncancel", onTransitionSettled, true);
   }
 
   function reveal() {
@@ -529,16 +611,18 @@ export function createKeyboardHintsController(
     if (!state.active) return;
     stopWatching();
     conceal();
+    pool = [];
+    scope = undefined;
     state = { active: false, prefix: "", targets: [] };
     emit();
   }
 
   function onScroll() {
-    dismiss();
+    scheduleRefresh();
   }
 
   function onResize() {
-    dismiss();
+    scheduleRefresh();
   }
 
   function onPointerDown() {
@@ -550,23 +634,105 @@ export function createKeyboardHintsController(
   }
 
   function onMutations(records: MutationRecord[]) {
-    for (const record of records) {
-      if (isOverlayMutation(record)) continue;
-      const target = record.target;
-      for (const hinted of state.targets) {
-        if (!hinted.element.isConnected) {
-          dismiss();
-          return;
-        }
-        if (
-          target instanceof Node &&
-          (hinted.element === target || hinted.element.contains(target))
-        ) {
-          dismiss();
-          return;
-        }
-      }
+    if (records.some((record) => !isOverlayMutation(record))) scheduleRefresh();
+  }
+
+  function onResizeObserved() {
+    scheduleRefresh();
+  }
+
+  function transitionProperty(event: Event): string {
+    return (event as TransitionEvent).propertyName ?? "";
+  }
+
+  function onTransitionRun(event: Event) {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    if (target.closest(HINT_OVERLAY_SELECTOR)) return;
+    const properties = runningTransitions.get(target) ?? new Set<string>();
+    properties.add(transitionProperty(event));
+    runningTransitions.set(target, properties);
+    scheduleRefresh();
+  }
+
+  function onTransitionSettled(event: Event) {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    if (target.closest(HINT_OVERLAY_SELECTOR)) return;
+    const properties = runningTransitions.get(target);
+    if (properties) {
+      properties.delete(transitionProperty(event));
+      if (properties.size === 0) runningTransitions.delete(target);
     }
+    // The settled value is the last one the badge has to follow, even when the
+    // transition started before the mode opened.
+    scheduleRefresh();
+  }
+
+  /** Drops transitions that ended without an event or that lost their element. */
+  function pruneTransitions() {
+    for (const [element, properties] of runningTransitions) {
+      if (!element.isConnected) {
+        runningTransitions.delete(element);
+        continue;
+      }
+      for (const property of properties) {
+        if (!isTransitionRunning(element, property)) properties.delete(property);
+      }
+      if (properties.size === 0) runningTransitions.delete(element);
+    }
+  }
+
+  /** Transitions that already run when the mode opens never fired transitionrun here. */
+  function seedRunningTransitions() {
+    if (typeof CSSTransition === "undefined") return;
+    for (const animation of doc.getAnimations()) {
+      if (!(animation instanceof CSSTransition)) continue;
+      if (animation.playState !== "running") continue;
+      const target = transitionElement(animation);
+      if (!target || target.closest(HINT_OVERLAY_SELECTOR)) continue;
+      const properties = runningTransitions.get(target) ?? new Set<string>();
+      properties.add(animation.transitionProperty);
+      runningTransitions.set(target, properties);
+    }
+  }
+
+  function scheduleRefresh() {
+    if (disposed || !state.active) return;
+    const view = doc.defaultView;
+    if (!view || pendingFrame !== undefined) return;
+    pendingFrame = view.requestAnimationFrame(() => {
+      pendingFrame = undefined;
+      pruneTransitions();
+      refresh();
+      // A running transition moves its target between notifications.
+      if (runningTransitions.size > 0) scheduleRefresh();
+    });
+  }
+
+  function refresh() {
+    if (disposed || !state.active) return;
+    if (scope && resolveHintScope(doc) !== scope) {
+      // A modal or popup took over: the labels under it must not answer.
+      dismiss();
+      return;
+    }
+    const next: KeyboardHintTarget[] = [];
+    for (const entry of pool) {
+      const element = entry.element;
+      if (!element.isConnected) continue;
+      if (!isHintCandidate(element)) continue;
+      if (isDisabled(element) || isHidden(element)) continue;
+      if (!isExposed(element, doc)) continue;
+      next.push(hintTarget(entry.label, element));
+      observeWithAncestors(element);
+      const anchorId = element.getAttribute(HINT_ANCHOR_ID_ATTRIBUTE);
+      const anchor = anchorId ? doc.getElementById(anchorId) : null;
+      if (anchor) observeWithAncestors(anchor);
+    }
+    if (sameHintTargets(state.targets, next)) return;
+    state = { ...state, targets: next };
+    emit();
   }
 
   function startWatching() {
@@ -575,10 +741,14 @@ export function createKeyboardHintsController(
     view?.addEventListener("resize", onResize);
     view?.addEventListener("pointerdown", onPointerDown, true);
     view?.addEventListener("blur", onBlur);
+    view?.addEventListener("transitionrun", onTransitionRun, true);
+    view?.addEventListener("transitionend", onTransitionSettled, true);
+    view?.addEventListener("transitioncancel", onTransitionSettled, true);
     observer = new MutationObserver(onMutations);
     observer.observe(doc.body, {
       childList: true,
       subtree: true,
+      characterData: true,
       attributes: true,
       attributeFilter: [
         "class",
@@ -588,28 +758,47 @@ export function createKeyboardHintsController(
         "aria-hidden",
         "aria-disabled",
         "disabled",
+        "id",
+        "open",
         HINT_SKIP_ATTRIBUTE,
         HINT_FOCUS_SCOPE_ID_ATTRIBUTE,
+        HINT_PLACEMENT_ATTRIBUTE,
+        HINT_SIZE_ATTRIBUTE,
+        HINT_ANCHOR_ID_ATTRIBUTE,
       ],
     });
+    for (const entry of pool) {
+      observeWithAncestors(entry.element);
+      const anchorId = entry.element.getAttribute(HINT_ANCHOR_ID_ATTRIBUTE);
+      const anchor = anchorId ? doc.getElementById(anchorId) : null;
+      if (anchor) observeWithAncestors(anchor);
+    }
+    seedRunningTransitions();
+    scheduleRefresh();
   }
 
   function open() {
     // Hover-only rows must be opaque before collection, which skips transparent controls.
     reveal();
-    let targets: KeyboardHintTarget[];
+    let elements: HTMLElement[];
+    let labels: string[];
     try {
-      const elements = collectHintTargets(doc);
-      const labels = assignHintLabels(elements.length);
-      targets = elements.flatMap((element, index) => {
-        const label = labels[index];
-        return label === undefined ? [] : [hintTarget(label, element)];
-      });
+      elements = collectHintTargets(doc);
+      labels = assignHintLabels(elements.length);
     } catch (error) {
       conceal();
       throw error;
     }
-    state = { active: true, prefix: "", targets };
+    pool = elements.flatMap((element, index) => {
+      const label = labels[index];
+      return label === undefined ? [] : [{ element, label }];
+    });
+    scope = resolveHintScope(doc);
+    state = {
+      active: true,
+      prefix: "",
+      targets: pool.map((entry) => hintTarget(entry.label, entry.element)),
+    };
     startWatching();
     emit();
   }
@@ -721,6 +910,8 @@ export function createKeyboardHintsController(
       disposed = true;
       stopWatching();
       conceal();
+      pool = [];
+      scope = undefined;
       state = { active: false, prefix: "", targets: [] };
     },
   };
