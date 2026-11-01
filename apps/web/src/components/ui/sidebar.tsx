@@ -22,6 +22,7 @@ import { setLocalStorageItem } from "~/hooks/useLocalStorage";
 import { resolveSidebarState, type ResponsiveSidebarState } from "./sidebarState";
 import * as Schema from "effect/Schema";
 import { announceSidebarVisibility } from "~/lib/accessibilityAnnouncements";
+import { keyboardHintProps } from "~/lib/keyboardHints";
 
 const SIDEBAR_COOKIE_NAME = "sidebar_state";
 const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7;
@@ -390,7 +391,12 @@ function Sidebar({
   );
 }
 
-function SidebarTrigger({ className, onClick, ...props }: React.ComponentProps<typeof Button>) {
+function SidebarTrigger({
+  className,
+  onClick,
+  iconId,
+  ...props
+}: React.ComponentProps<typeof Button> & { readonly iconId?: string }) {
   const { toggleSidebar } = useSidebar();
   const isOpen = useSidebarVisibility();
 
@@ -411,7 +417,11 @@ function SidebarTrigger({ className, onClick, ...props }: React.ComponentProps<t
       variant="ghost"
       {...props}
     >
-      <MorphIcon className="size-4" icon={isOpen ? PanelLeftClose : PanelLeft} />
+      <MorphIcon
+        className="size-4"
+        icon={isOpen ? PanelLeftClose : PanelLeft}
+        {...(iconId ? { id: iconId } : {})}
+      />
       <span className="sr-only">Toggle Sidebar</span>
     </Button>
   );
@@ -556,6 +566,7 @@ function SidebarRail({
             )}
             data-sidebar="rail"
             data-slot="sidebar-rail"
+            {...keyboardHintProps({ skip: canResize })}
             onClick={handleClick}
             onLostPointerCapture={(event) => {
               onLostPointerCapture?.(event);
@@ -630,7 +641,10 @@ function SidebarHeader({ className, ...props }: React.ComponentProps<"div">) {
 function SidebarFooter({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
-      className={cn("flex flex-col gap-2 px-[var(--sidebar-content-inset)] py-1", className)}
+      className={cn(
+        "flex flex-col gap-2 px-[var(--sidebar-content-inset)] pt-1 pb-[var(--sidebar-content-inset)]",
+        className,
+      )}
       data-sidebar="footer"
       data-slot="sidebar-footer"
       {...props}

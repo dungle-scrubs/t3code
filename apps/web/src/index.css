@@ -1569,6 +1569,7 @@ html[data-theme-id] [data-app-sidebar] {
   --accent-foreground: var(--app-theme-accent-surface-foreground);
   --muted: var(--app-theme-muted);
   --muted-foreground: var(--app-theme-muted-foreground);
+  --secondary-label: var(--app-theme-secondary-label);
   --border: var(--app-theme-border);
   --input: var(--app-theme-input);
   --sidebar: var(--app-theme-sidebar);
@@ -2567,4 +2568,22 @@ code {
 [data-workspace-area]:focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: -2px;
+}
+
+/* Keyboard hints label hover-only action rows, so those rows show while the hints do.
+   Unlayered, so it outranks the rows' opacity utilities; transition none makes it immediate. */
+html[data-keyboard-hints-active] [data-keyboard-hint-reveal] {
+  opacity: 1;
+  pointer-events: auto;
+  transition: none;
+}
+
+/* File-tab close icons stay hover-only. Hint mode reveals the X the close hint anchors to.
+   Unlayered, so it outranks the hidden utility; removing the root attribute restores it. */
+html[data-keyboard-hints-active] [data-keyboard-hint-close-placeholder] {
+  display: none;
+}
+
+html[data-keyboard-hints-active] [data-keyboard-hint-close-icon] {
+  display: block;
 }

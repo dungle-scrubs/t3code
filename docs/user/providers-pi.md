@@ -83,5 +83,6 @@ threads.
 - If no models appear, open Pi directly and confirm its authentication and model configuration.
 - If discovery cannot complete, T3 Code keeps Pi available with the `Pi default` model. Start a
   thread to let the interactive Pi session handle any startup prompt.
-- The context meter appears once Pi reports usage for the thread. Some model providers only
-  report usage when a response completes, so the meter can wait for the first reply.
+- The context meter is off by default; see [commands and skills](./composer.md#commands-and-skills)
+  to enable it on web and desktop. It appears once Pi reports usage for the thread. Some model
+  providers only report usage when a response completes, so the meter can wait for the first reply.

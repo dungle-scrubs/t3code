@@ -59,10 +59,49 @@ export function markOpenToPermissions(trigger: HTMLElement): void {
 export function focusRequestedPermission(open: boolean, trigger: HTMLElement | null): void {
   if (!trigger?.dataset.openToPermissions) return;
   delete trigger.dataset.openToPermissions;
-  if (!open) return;
-  const popupId = trigger.getAttribute("aria-controls");
+  if (open) focusCheckedPermission(trigger);
+}
+
+/** Focuses the checked permission in the menu this trigger opened. */
+export function focusCheckedPermission(trigger: HTMLElement | null): void {
+  const popupId = trigger?.getAttribute("aria-controls");
   const popup = popupId ? document.getElementById(popupId) : null;
   popup
     ?.querySelector<HTMLElement>("[data-composer-permissions] [aria-checked='true']")
+    ?.focus({ preventScroll: true });
+}
+
+/**
+ * composer.effort marks the model picker trigger it opens; the picker then moves focus to the
+ * selected effort level once its popup is open.
+ */
+export function markOpenToEffort(trigger: HTMLElement): void {
+  trigger.dataset.openToEffort = "true";
+}
+
+/** Reads and clears an open-to mark: effort from composer.effort, permissions from composer.mode. */
+export function takeOpenTarget(trigger: HTMLElement | null): "effort" | "permissions" | null {
+  if (trigger?.dataset.openToEffort) {
+    delete trigger.dataset.openToEffort;
+    return "effort";
+  }
+  if (trigger?.dataset.openToPermissions) {
+    delete trigger.dataset.openToPermissions;
+    return "permissions";
+  }
+  return null;
+}
+
+/** Hint activation opens menus mouse-style, so the popup root takes focus instead of an item. */
+export function focusSelectedComposerTrait(open: boolean, trigger: HTMLElement | null): void {
+  if (!open || !trigger) return;
+  const { ownerDocument } = trigger;
+  const popupId = trigger.getAttribute("aria-controls");
+  const popup = popupId ? ownerDocument.getElementById(popupId) : null;
+  if (!popup || popup !== ownerDocument.activeElement) return;
+  popup
+    .querySelector<HTMLElement>(
+      "[data-slot='menu-radio-group'] [role='menuitemradio'][aria-checked='true']:not([aria-disabled='true']):not([data-disabled])",
+    )
     ?.focus({ preventScroll: true });
 }

@@ -5,8 +5,10 @@ import {
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
   type RefObject,
+  useId,
 } from "react";
 
+import { keyboardHintProps } from "~/lib/keyboardHints";
 import { cn } from "~/lib/utils";
 import { Button } from "../ui/button";
 import { SidebarInput, SidebarMenuButton } from "../ui/sidebar";
@@ -51,6 +53,7 @@ export function SidebarThreadHeader({
   activeSearchResultIndex,
   onClearSearch,
 }: SidebarThreadHeaderProps) {
+  const searchIconId = useId();
   const resultsVisible = isSearching && searchResultCount > 0;
   // Shrinking results can remove the active option; never leave aria-activedescendant pointing at it.
   const activeResultExists = resultsVisible && activeSearchResultIndex < searchResultCount;
@@ -64,7 +67,7 @@ export function SidebarThreadHeader({
         ref={searchFieldRef}
         className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-sm font-medium text-sidebar-muted-foreground hover:bg-sidebar-row-hover hover:text-sidebar-foreground focus-within:bg-sidebar-row-hover focus-within:text-sidebar-foreground focus-within:ring-1 focus-within:ring-inset focus-within:ring-ring/70"
       >
-        <SearchIcon className="size-4 shrink-0 text-(--sidebar-icon-color)" />
+        <SearchIcon id={searchIconId} className="size-4 shrink-0 text-(--sidebar-icon-color)" />
         <SidebarInput
           ref={searchInputRef}
           nativeInput
@@ -84,6 +87,7 @@ export function SidebarThreadHeader({
               : undefined
           }
           className="min-w-0 flex-1"
+          {...keyboardHintProps({ placement: "center", size: "compact", anchorId: searchIconId })}
         />
         {isSearching ? (
           <Button
@@ -150,6 +154,7 @@ export function SidebarHeaderIconButton({
   ComponentProps<typeof SidebarMenuButton>,
   "children" | "className" | "tooltip" | "isActive" | "aria-label"
 >) {
+  const iconId = useId();
   return (
     <Tooltip>
       <TooltipTrigger
@@ -158,12 +163,15 @@ export function SidebarHeaderIconButton({
             size="icon"
             type="button"
             aria-label={label}
+            {...keyboardHintProps({ placement: "below", size: "compact", anchorId: iconId })}
             {...rest}
             className={cn("relative size-7 shrink-0", className)}
           />
         }
       >
-        {children}
+        <span id={iconId} className="inline-flex shrink-0">
+          {children}
+        </span>
         <span
           aria-hidden
           className="pointer-events-none absolute left-1/2 top-1/2 size-[max(100%,3rem)] -translate-1/2 pointer-fine:hidden"

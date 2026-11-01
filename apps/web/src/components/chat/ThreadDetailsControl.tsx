@@ -1,7 +1,8 @@
 import { mergeProps } from "@base-ui/react/merge-props";
 import { useRender } from "@base-ui/react/use-render";
-import type { ComponentProps } from "react";
+import { useId, type ComponentProps } from "react";
 
+import { keyboardHintProps } from "~/lib/keyboardHints";
 import { cn } from "~/lib/utils";
 import { Button } from "../ui/button";
 import {
@@ -43,12 +44,20 @@ export function ThreadDetailsControl({
   multiline?: boolean;
   tone?: "default" | "muted" | "primary" | "destructive";
 }) {
+  const selectCaretId = useId();
   const control = useRender({
     defaultTagName: "button",
     render,
     props: mergeProps<"button">(
       {
         type: render ? undefined : "button",
+        ...(panel && part === "select"
+          ? keyboardHintProps({
+              placement: "before",
+              size: "compact",
+              anchorId: selectCaretId,
+            })
+          : {}),
         className: cn(
           "relative inline-flex shrink-0 cursor-pointer items-center whitespace-nowrap border outline-none transition-[box-shadow,scale] [&:not([aria-haspopup]):not(:disabled):not([aria-disabled=true])]:will-change-[scale] [&:active:not([aria-haspopup])]:scale-[0.97] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background pointer-coarse:after:absolute pointer-coarse:after:size-full pointer-coarse:after:min-h-11 pointer-coarse:after:min-w-11 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 disabled:pointer-events-none disabled:opacity-64 aria-disabled:cursor-not-allowed aria-disabled:opacity-64 [&_svg]:shrink-0",
           parts[part],
@@ -80,7 +89,10 @@ export function ThreadDetailsControl({
                 {children}
               </span>
               <span data-slot="select-icon" className={THREAD_DETAILS_PANEL_SELECT_ICON_CLASS}>
-                <ChevronDownIcon className={THREAD_DETAILS_PANEL_CHEVRON_CLASS} />
+                <ChevronDownIcon
+                  id={selectCaretId}
+                  className={THREAD_DETAILS_PANEL_CHEVRON_CLASS}
+                />
               </span>
             </>
           ) : (

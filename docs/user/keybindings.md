@@ -3,6 +3,19 @@
 Customize shortcuts in **Settings → Keybindings** on web and desktop. That page
 also lists the command IDs and defaults available in your version.
 
+## Keyboard hints
+
+Press `Ctrl+Shift+Space` to label the controls you can click. Type a label to
+activate that control. This shortcut uses Control on Mac, Windows, and Linux.
+
+Escape removes the labels. Backspace deletes the last character you typed.
+Backspace with nothing typed removes the labels.
+
+Press `i` to open GitHub issues for the current project's repository. Without
+a GitHub repository, `i` does not open a page and the labels stay open.
+
+Press `p` to open the app's Pull requests page.
+
 ## Composer controls
 
 In **Settings → Chat → Send shortcut**, choose whether Enter sends, requires
@@ -37,7 +50,8 @@ lowest, and decrease wraps from the lowest level to the highest.
 
 In the model picker, press Left in an empty search field or Shift+Tab to reach
 the provider list. Use Up/Down to move and Enter to choose. Right returns to
-model search. `mod+shift+up` and `mod+shift+down` switch providers directly and clear the
+model search. Right at the end of the search moves to the highlighted model's effort
+levels, and Left comes back. Choosing a model keeps the picker open on its effort. `mod+shift+up` and `mod+shift+down` switch providers directly and clear the
 search. These provider shortcuts can also be changed in Settings.
 
 These shortcuts run inside the focused web or desktop client. `mod` uses Command

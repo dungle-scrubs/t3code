@@ -1,4 +1,4 @@
-import type { ScopedThreadRef } from "@t3tools/contracts";
+import type { BrowserLinkTarget, ScopedThreadRef } from "@t3tools/contracts";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
@@ -27,6 +27,7 @@ export function useOpenLink(threadRef: ScopedThreadRef | null | undefined): (
       readonly button?: number | undefined;
     };
     readonly threadRef?: ScopedThreadRef | undefined;
+    readonly target?: BrowserLinkTarget;
   },
 ) => Promise<void> {
   const openPreview = useAtomCommand(previewEnvironment.open, { reportFailure: false });
@@ -35,7 +36,7 @@ export function useOpenLink(threadRef: ScopedThreadRef | null | undefined): (
     const target = resolveLinkTarget({
       url,
       event: options.event ?? NO_MODIFIER,
-      preference: await resolveBrowserLinkTargetPreference(),
+      preference: options.target ?? (await resolveBrowserLinkTargetPreference()),
       canOpenInApp: canOpenLinksInApp(targetThreadRef),
     });
     if (target === "app" && targetThreadRef) {

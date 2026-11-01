@@ -1,10 +1,11 @@
-import type { ReactNode } from "react";
+import { useId, type ReactNode } from "react";
 
 import { Spinner } from "~/components/ui/spinner";
 import { Button } from "~/components/ui/button";
 import { Toggle } from "~/components/ui/toggle";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { DIFF_SURFACE_THEME_UNSAFE_CSS } from "~/lib/diffRendering";
+import { keyboardHintProps } from "~/lib/keyboardHints";
 import { cn } from "~/lib/utils";
 
 export const FILE_SURFACE_SUBHEADER_CLASS =
@@ -63,9 +64,29 @@ export function FileSurfaceAction(props: {
   readonly pressed?: boolean;
   readonly disabled?: boolean;
   readonly onPress: () => void;
+  readonly keyboardHint?: Parameters<typeof keyboardHintProps>[0] | undefined;
   readonly children: ReactNode;
 }) {
   const pressed = props.pressed;
+  const iconId = useId();
+  const hint = props.keyboardHint;
+  const belowIconAnchorId =
+    hint !== undefined && hint.placement === "below" && hint.anchorId === undefined
+      ? iconId
+      : undefined;
+  const hintProps = keyboardHintProps(
+    belowIconAnchorId !== undefined && hint !== undefined
+      ? { ...hint, anchorId: belowIconAnchorId }
+      : (hint ?? {}),
+  );
+  const children =
+    belowIconAnchorId !== undefined ? (
+      <span id={belowIconAnchorId} className="inline-flex shrink-0">
+        {props.children}
+      </span>
+    ) : (
+      props.children
+    );
   return (
     <Tooltip>
       <TooltipTrigger
@@ -79,8 +100,9 @@ export function FileSurfaceAction(props: {
               aria-label={props.label}
               variant="ghost"
               size="icon-sm"
+              {...hintProps}
             >
-              {props.children}
+              {children}
             </Button>
           ) : (
             <Toggle
@@ -91,8 +113,9 @@ export function FileSurfaceAction(props: {
               aria-label={props.label}
               variant="ghost"
               size="sm"
+              {...hintProps}
             >
-              {props.children}
+              {children}
             </Toggle>
           )
         }

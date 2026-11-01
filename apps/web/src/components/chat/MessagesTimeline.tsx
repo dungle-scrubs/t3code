@@ -53,7 +53,13 @@ import {
 import { type PendingApproval, type TimelineEntry } from "../../session-logic";
 import type { CodexArtifactTemplate } from "@t3tools/shared/codexArtifactTemplates";
 import { type ChatFileAttachment, type TurnDiffSummary } from "../../types";
-import { ArrowRightIcon, BotIcon, CircleAlertIcon, Minimize2Icon } from "lucide-react";
+import {
+  ArrowRightIcon,
+  BotIcon,
+  CircleAlertIcon,
+  MessagesSquareIcon,
+  Minimize2Icon,
+} from "lucide-react";
 import { ChevronDown, ChevronRight } from "lucide";
 import { MorphIcon } from "~/components/MorphIcon";
 import { Skeleton } from "../ui/skeleton";
@@ -87,6 +93,7 @@ import { TooltipScrollDismissArea } from "../ui/tooltip";
 import { WorktreeSetupCard } from "./WorktreeSetupCard";
 import { useOpenPrLink } from "~/lib/openPullRequestLink";
 import { useMediaQuery } from "~/hooks/useMediaQuery";
+import { keyboardHintProps } from "~/lib/keyboardHints";
 import { cn } from "~/lib/utils";
 import { type TimestampFormat } from "@t3tools/contracts/settings";
 import { type HandoffTimelineRun } from "./V2LifecycleRow";
@@ -251,9 +258,14 @@ interface MessagesTimelineProps {
   onOpenThread: (threadId: OrchestrationV2TurnItem["threadId"]) => void;
   renderHtmlRender?: TimelineRowSharedState["renderHtmlRender"];
   turnItemSource?: TimelineRowSharedState["turnItemSource"];
-  /** The thread this one is a subagent of; `open` is absent when it cannot be opened from here. */
+  /**
+   * The thread this one is a subagent or side chat of; `open` is absent when it cannot be
+   * opened from here.
+   */
   parentThreadLink?: {
     readonly title: string;
+    /** A side chat's inherited rows collapse into this link. */
+    readonly sideChat?: boolean;
     /** Where it runs, when that is another environment. */
     readonly environmentLabel?: string;
     readonly open?: () => void;
@@ -1098,13 +1110,13 @@ const ConversationTimeline = memo(function ConversationTimeline({
       <div className="messages-timeline-row-frame">
         <div className="chat-content-lane pt-1 sm:pt-2">
           <TimelineSystemDivider
-            label="Subagent of"
+            label={parentThreadLink.sideChat ? "Context from" : "Subagent of"}
             detail={
               parentThreadLink.environmentLabel === undefined
                 ? parentThreadLink.title
                 : `${parentThreadLink.title} on ${parentThreadLink.environmentLabel}`
             }
-            icon={BotIcon}
+            icon={parentThreadLink.sideChat ? MessagesSquareIcon : BotIcon}
             {...(parentThreadLink.open === undefined
               ? {}
               : { actionLabel: "Open parent thread", onAction: parentThreadLink.open })}
@@ -1651,6 +1663,7 @@ function TurnFoldTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "turn-
           data-scroll-anchor-ignore
           onClick={toggle}
           aria-busy={loading}
+          {...keyboardHintProps({ placement: "before", size: "compact" })}
           className="flex cursor-pointer select-none items-center gap-1 rounded-md px-1 text-sm leading-relaxed text-muted-foreground tabular-nums transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
         >
           <span>
