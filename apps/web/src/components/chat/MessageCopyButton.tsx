@@ -1,4 +1,4 @@
-import { memo, useId, useRef } from "react";
+import { memo, useRef } from "react";
 import { Check, Copy } from "lucide";
 import { Button } from "../ui/button";
 import { MorphIcon } from "~/components/MorphIcon";
@@ -30,7 +30,6 @@ export const MessageCopyButton = memo(function MessageCopyButton({
   className?: string;
 }) {
   const ref = useRef<HTMLButtonElement>(null);
-  const iconId = useId();
   const { copyToClipboard, isCopied } = useCopyToClipboard<void>({
     onCopy: () => showAnchoredCopySuccessToast(ref),
     onError: (error: Error) => showAnchoredCopyErrorToast(ref, error),
@@ -51,12 +50,11 @@ export const MessageCopyButton = memo(function MessageCopyButton({
             size={size}
             variant={variant === "ghost" ? "ghost-muted" : variant}
             className={className}
-            {...keyboardHintProps({ placement: "below", size: "compact", anchorId: iconId })}
+            {...keyboardHintProps({ size: "compact" })}
           />
         }
       >
         <MorphIcon
-          id={iconId}
           className={cn("size-3", isCopied && "text-primary")}
           icon={isCopied ? Check : icon}
         />

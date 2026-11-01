@@ -5,7 +5,6 @@ import { keyboardHintProps } from "~/lib/keyboardHints";
 
 interface PanelTabCloseButtonProps {
   children: ReactNode;
-  closeIconId?: string | undefined;
   keyboardHint?: Parameters<typeof keyboardHintProps>[0] | undefined;
   label: string;
   onClick: () => void;
@@ -15,7 +14,6 @@ interface PanelTabCloseButtonProps {
 
 export function PanelTabCloseButton({
   children,
-  closeIconId,
   keyboardHint,
   label,
   onClick,
@@ -37,7 +35,6 @@ export function PanelTabCloseButton({
         {children}
       </span>
       <X
-        id={closeIconId}
         className="hidden size-3 group-hover/tab:block group-focus-visible/close:block"
         {...(revealCloseOnHints ? { "data-keyboard-hint-close-icon": "" } : {})}
       />

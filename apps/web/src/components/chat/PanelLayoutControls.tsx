@@ -1,7 +1,7 @@
 import { PanelBottomIcon, PanelRightIcon, SquareMenuIcon } from "lucide-react";
 import { Maximize2, Minimize2 } from "lucide";
 import { MorphIcon } from "~/components/MorphIcon";
-import { memo, useId, type ReactNode } from "react";
+import { memo, type ReactNode } from "react";
 
 import { keyboardHintProps } from "~/lib/keyboardHints";
 import { cn } from "~/lib/utils";
@@ -50,9 +50,6 @@ export const PanelLayoutControls = memo(function PanelLayoutControls({
   onToggleThreadPanel,
   onToggleRightPanel,
 }: PanelLayoutControlsProps) {
-  const threadInfoIconId = useId();
-  const terminalIconId = useId();
-  const rightPanelIconId = useId();
   const threadPanelToggle = (
     <Toggle
       className="relative shrink-0 [-webkit-app-region:no-drag]"
@@ -61,9 +58,9 @@ export const PanelLayoutControls = memo(function PanelLayoutControls({
       aria-label="Toggle thread details panel"
       variant="ghost"
       size="sm"
-      {...keyboardHintProps({ placement: "below", size: "compact", anchorId: threadInfoIconId })}
+      {...keyboardHintProps({ size: "compact" })}
     >
-      <SquareMenuIcon id={threadInfoIconId} className="size-4" />
+      <SquareMenuIcon className="size-4" />
     </Toggle>
   );
   const threadPanelControl = (
@@ -98,14 +95,10 @@ export const PanelLayoutControls = memo(function PanelLayoutControls({
               aria-label="Toggle terminal drawer"
               variant="ghost"
               size="sm"
-              {...keyboardHintProps({
-                placement: "below",
-                size: "compact",
-                anchorId: terminalIconId,
-              })}
+              {...keyboardHintProps({ size: "compact" })}
               disabled={!terminalAvailable}
             >
-              <PanelBottomIcon id={terminalIconId} className="size-4" />
+              <PanelBottomIcon className="size-4" />
             </Toggle>
           </TooltipTrigger>
           <TooltipPopup side="bottom">
@@ -126,14 +119,10 @@ export const PanelLayoutControls = memo(function PanelLayoutControls({
               data-right-panel-toggle
               variant="ghost"
               size="sm"
-              {...keyboardHintProps({
-                placement: "below",
-                size: "compact",
-                anchorId: rightPanelIconId,
-              })}
+              {...keyboardHintProps({ size: "compact" })}
               disabled={!rightPanelAvailable}
             >
-              <PanelRightIcon id={rightPanelIconId} className="size-4" />
+              <PanelRightIcon className="size-4" />
             </Toggle>
           </TooltipTrigger>
           <TooltipPopup side="bottom">
@@ -155,7 +144,6 @@ export const RightPanelMaximizeControl = memo(function RightPanelMaximizeControl
   onToggle: () => void;
 }) {
   const label = maximized ? "Restore panel size" : "Maximize panel";
-  const maximizeIconId = useId();
   return (
     <Tooltip>
       <TooltipTrigger
@@ -167,17 +155,9 @@ export const RightPanelMaximizeControl = memo(function RightPanelMaximizeControl
             aria-label={label}
             variant="ghost"
             size="sm"
-            {...keyboardHintProps({
-              placement: "below",
-              size: "compact",
-              anchorId: maximizeIconId,
-            })}
+            {...keyboardHintProps({ size: "compact" })}
           >
-            <MorphIcon
-              id={maximizeIconId}
-              className="size-4"
-              icon={maximized ? Minimize2 : Maximize2}
-            />
+            <MorphIcon className="size-4" icon={maximized ? Minimize2 : Maximize2} />
           </Toggle>
         }
       />

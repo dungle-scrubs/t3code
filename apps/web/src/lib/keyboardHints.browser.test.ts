@@ -123,6 +123,9 @@ const HOVER_ROW = `<div id="row" data-keyboard-hint-reveal="" class="opacity-0 g
 
 const opacity = (element: HTMLElement) => getComputedStyle(element).opacity;
 
+// The label text starts 6px into this button, where its hint badge starts.
+const TEXT_BUTTON = "padding:0 6px;border:0";
+
 describe("keyboard hint targets", () => {
   it("labels the visible controls and skips the hidden, disabled and inert ones", () => {
     using fixture = setupFixture(`
@@ -223,6 +226,96 @@ describe("keyboard hint targets", () => {
       expect.arrayContaining(["inactive", "close", "inside", "missing", "empty"]),
     );
   });
+});
+
+// Every target sits in a 40px row at (40, 40) with 10px start padding, so a 16px icon spans
+// x 50..66 and y 52..68, and the first text line starts at x 50 and centres on y 60.
+const PLACEMENT_ROW =
+  "display:flex;align-items:center;height:40px;padding:0 10px;border:0;margin:0";
+const ICON = `<svg aria-hidden="true" width="16" height="16" style="display:block;flex:none"></svg>`;
+const placed = (markup: string) => `<div style="position:fixed;left:40px;top:40px">${markup}</div>`;
+
+describe("keyboard hint placement", () => {
+  it.each([
+    [
+      "covers a persistent icon",
+      placed(`<button id="one" style="${PLACEMENT_ROW}">${ICON}</button>`),
+      { placement: "center", left: 58, top: 60 },
+    ],
+    [
+      "covers the icon before a persistent label",
+      placed(`<button id="one" style="${PLACEMENT_ROW}">${ICON}Settle</button>`),
+      { placement: "center", left: 58, top: 60 },
+    ],
+    [
+      "starts at the text before a trailing caret",
+      placed(`<button id="one" style="${PLACEMENT_ROW}"><span>Title</span>${ICON}</button>`),
+      { placement: "text-start", left: 50, top: 60 },
+    ],
+    [
+      "starts at plain text",
+      placed(`<button id="one" style="${PLACEMENT_ROW}">Text</button>`),
+      { placement: "text-start", left: 50, top: 60 },
+    ],
+    [
+      "starts at the text inside a padded field",
+      placed(
+        `<input id="one" placeholder="Search" style="box-sizing:border-box;width:120px;height:40px;padding:0 12px;border:2px solid;margin:0" />`,
+      ),
+      { placement: "text-start", left: 54, top: 60 },
+    ],
+    [
+      "sits below a hover-only icon",
+      placed(
+        `<div data-keyboard-hint-reveal="" class="opacity-0"><button id="one" style="${PLACEMENT_ROW}">${ICON}</button></div>`,
+      ),
+      { placement: "below", left: 58, top: 72 },
+    ],
+  ] as const)("%s", (_case, markup, expected) => {
+    using _fixture = setupFixture(markup);
+    using controller = setupController();
+    controller.handleKeyDown(keydown(" ", TRIGGER));
+
+    const target = controller.state.targets.find((candidate) => candidate.element.id === "one")!;
+    expect(target.placement).toBe(expected.placement);
+    expect(target.left).toBeCloseTo(expected.left, 0);
+    expect(target.top).toBeCloseTo(expected.top, 0);
+  });
+
+  it("puts a hover-only hint above when the viewport has no room below", () => {
+    using _fixture = setupFixture(
+      `<div style="position:fixed;left:40px;bottom:0" data-keyboard-hint-reveal="" class="opacity-0"><button id="one" style="${PLACEMENT_ROW}">${ICON}</button></div>`,
+    );
+    using controller = setupController();
+    controller.handleKeyDown(keydown(" ", TRIGGER));
+
+    const target = controller.state.targets.find((candidate) => candidate.element.id === "one")!;
+    // The icon spans innerHeight-28..innerHeight-12; 4px below it leaves no 16px badge plus 4px margin.
+    expect(target.placement).toBe("above");
+    expect(target.left).toBeCloseTo(58, 0);
+    expect(target.top).toBeCloseTo(window.innerHeight - 28 - 4 - 16, 0);
+  });
+
+  it.each([false, true])(
+    "keeps the command guide clear of the composer and heading (hero: %s)",
+    (hero) => {
+      using _fixture = setupFixture(`
+      <div data-workspace-area="composer" style="position:fixed;inset:0">
+        <div data-chat-composer-stack style="position:absolute;left:100px;top:200px;width:280px">
+          ${hero ? '<div data-chat-composer-heading style="position:absolute;bottom:100%;width:280px;height:50px">Heading</div>' : ""}
+          <form data-chat-composer-form="true" style="width:280px;height:80px"></form>
+        </div>
+      </div>
+    `);
+      using controller = setupController();
+      controller.handleKeyDown(keydown(" ", TRIGGER));
+
+      expect(controller.state.commandGuidePosition).toEqual({
+        bottom: window.innerHeight - (hero ? 150 : 200) + 8,
+        right: window.innerWidth - 380,
+      });
+    },
+  );
 });
 
 describe("keyboard hint mode", () => {
@@ -399,7 +492,7 @@ describe("keyboard hint mode", () => {
     [
       "scroll",
       `<div id="container" style="position:fixed;left:40px;top:40px">
-        <button id="one">One</button>
+        <button id="one" style="${TEXT_BUTTON}">One</button>
       </div>`,
       (fixture) => {
         fixture.element("container").style.left = "100px";
@@ -409,7 +502,7 @@ describe("keyboard hint mode", () => {
     [
       "resize",
       `<div id="container" style="position:fixed;left:40px;top:40px">
-        <button id="one">One</button>
+        <button id="one" style="${TEXT_BUTTON}">One</button>
       </div>`,
       (fixture) => {
         fixture.element("container").style.left = "100px";
@@ -419,7 +512,7 @@ describe("keyboard hint mode", () => {
     [
       "ancestor layout",
       `<div id="container" style="position:fixed;left:40px;top:40px">
-        <button id="one">One</button>
+        <button id="one" style="${TEXT_BUTTON}">One</button>
       </div>`,
       (fixture) => {
         fixture.element("container").style.left = "100px";
@@ -428,7 +521,7 @@ describe("keyboard hint mode", () => {
     [
       "target update",
       `<div id="container" style="position:fixed;left:40px;top:40px">
-        <button id="one">One</button>
+        <button id="one" style="${TEXT_BUTTON}">One</button>
       </div>`,
       (fixture) => {
         fixture.element("one").classList.add("updated");
@@ -437,7 +530,7 @@ describe("keyboard hint mode", () => {
     [
       "target text",
       `<div id="container" style="position:fixed;left:40px;top:40px">
-        <button id="one">One</button>
+        <button id="one" style="${TEXT_BUTTON}">One</button>
       </div>`,
       (fixture) => {
         fixture.element("one").textContent = "One updated";
@@ -447,7 +540,7 @@ describe("keyboard hint mode", () => {
       "sibling resize",
       `<div id="container" style="position:fixed;left:40px;top:40px;display:flex">
         <div id="spacer" style="width:10px;height:10px"></div>
-        <button id="one">One</button>
+        <button id="one" style="${TEXT_BUTTON}">One</button>
       </div>`,
       (fixture) => {
         fixture.element("spacer").style.width = "40px";
@@ -456,7 +549,7 @@ describe("keyboard hint mode", () => {
     [
       "nested scroll",
       `<div id="scroller" style="position:fixed;left:40px;top:40px;width:120px;height:80px;overflow:auto">
-        <div style="width:400px;height:400px"><button id="one">One</button></div>
+        <div style="width:400px;height:400px"><button id="one" style="${TEXT_BUTTON}">One</button></div>
       </div>`,
       (fixture) => {
         fixture.element("scroller").scrollLeft = 20;
@@ -479,7 +572,7 @@ describe("keyboard hint mode", () => {
       expect(controller.state.active).toBe(true);
       const current = controller.state.targets.find((target) => target.element.id === "one")!;
       expect(current.label).toBe(original.label);
-      expect(current.left).toBe(fixture.element("one").getBoundingClientRect().left + 7);
+      expect(current.left).toBe(fixture.element("one").getBoundingClientRect().left + 6);
     });
   });
 
@@ -493,7 +586,7 @@ describe("keyboard hint mode", () => {
     using controller = setupController();
     controller.handleKeyDown(keydown(" ", TRIGGER));
     const original = controller.state.targets.find((target) => target.element.id === "one")!;
-    expect(original.left).toBe(47);
+    expect(original.left).toBe(50);
 
     fixture.element("anchor").style.left = "140px";
 
@@ -501,7 +594,7 @@ describe("keyboard hint mode", () => {
       expect(controller.state.active).toBe(true);
       const current = controller.state.targets.find((target) => target.element.id === "one")!;
       expect(current.label).toBe(original.label);
-      expect(current.left).toBe(fixture.element("anchor").getBoundingClientRect().left + 7);
+      expect(current.left).toBe(fixture.element("anchor").getBoundingClientRect().left + 10);
     });
   });
 
@@ -510,7 +603,7 @@ describe("keyboard hint mode", () => {
     async (timing) => {
       using fixture = setupFixture(`
         <div id="mover" style="position:fixed;left:40px;top:40px;transition:left 100s linear">
-          <button id="one">One</button>
+          <button id="one" style="${TEXT_BUTTON}">One</button>
         </div>
       `);
       using controller = setupController();
@@ -535,14 +628,14 @@ describe("keyboard hint mode", () => {
           expect(current.left).toBeGreaterThan(90);
           expect(current.left).toBeLessThan(110);
           expect(current.left).toBeCloseTo(
-            fixture.element("one").getBoundingClientRect().left + 7,
+            fixture.element("one").getBoundingClientRect().left + 6,
             0,
           );
         });
         transition.finish();
         await vi.waitFor(() => {
           expect(controller.state.targets.find((target) => target.element.id === "one")!.left).toBe(
-            147,
+            146,
           );
         });
       } finally {

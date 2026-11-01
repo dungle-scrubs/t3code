@@ -55,7 +55,7 @@ import {
   SquareIcon,
   UnplugIcon,
 } from "lucide-react";
-import { useId, useRef, useState, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 
 import { useArchivedThreadSnapshots } from "../../lib/archivedThreadsState";
 import { buildThreadRouteParams } from "../../threadRoutes";
@@ -141,7 +141,6 @@ function ThreadLineageGroup(props: {
 }) {
   const [expanded, setExpanded] = useState(props.expanded);
   const [visibleCount, setVisibleCount] = useState(THREAD_LINEAGE_INITIAL_COUNT);
-  const caretId = useId();
   const { visibleRows, hiddenCount } = resolveThreadLineageWindow(props.rows, visibleCount);
   const failedCount = props.rows.filter(
     ({ edge }) => edge.status === "failed" || edge.status === "error",
@@ -153,7 +152,7 @@ function ThreadLineageGroup(props: {
         <ThreadDetailsControl
           aria-expanded={expanded}
           onClick={() => setExpanded(!expanded)}
-          {...keyboardHintProps({ placement: "before", size: "compact", anchorId: caretId })}
+          {...keyboardHintProps({ size: "compact" })}
         >
           <BotIcon aria-hidden className={THREAD_DETAILS_PANEL_ICON_CLASS} />
           <span className={cn(THREAD_DETAILS_PANEL_LABEL_CLASS, "min-w-0 flex-1 truncate")}>
@@ -166,7 +165,6 @@ function ThreadLineageGroup(props: {
             </span>
           )}
           <ChevronDownIcon
-            id={caretId}
             aria-hidden
             className={cn(
               THREAD_DETAILS_PANEL_CHEVRON_CLASS,
@@ -877,7 +875,7 @@ export function ThreadRelationshipsPanel(props: {
                       part="icon"
                       aria-label="More thread actions"
                       disabled={busyAction !== null}
-                      {...keyboardHintProps({ placement: "before", size: "compact" })}
+                      {...keyboardHintProps({ size: "compact" })}
                     />
                   }
                 >

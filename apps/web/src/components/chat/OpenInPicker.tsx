@@ -6,7 +6,7 @@ import {
   type EnvironmentId,
   type ResolvedKeybindingsConfig,
 } from "@t3tools/contracts";
-import { memo, use, useId, useRef } from "react";
+import { memo, use, useRef } from "react";
 import { BackgroundThreadContext } from "./backgroundThread";
 import { shortcutLabelForCommand } from "../../keybindings";
 import { OPEN_FAVORITE_EDITOR_ATTRIBUTE } from "./OpenInPickerShortcut";
@@ -61,7 +61,7 @@ import {
   WebStormIcon,
 } from "../JetBrainsIcons";
 import { announce } from "~/lib/announce";
-import { keyboardHintProps, type KeyboardHintPlacement } from "~/lib/keyboardHints";
+import { keyboardHintProps } from "~/lib/keyboardHints";
 import { cn, isMacPlatform, isWindowsPlatform } from "~/lib/utils";
 import { shellEnvironment } from "~/state/shell";
 import { useAtomCommand } from "~/state/use-atom-command";
@@ -215,7 +215,6 @@ export const OpenInPicker = memo(function OpenInPicker({
   enableShortcut = true,
   displayMode = "toolbar",
   revealFileManager = false,
-  hintPlacement,
 }: {
   environmentId: EnvironmentId;
   keybindings: ResolvedKeybindingsConfig;
@@ -227,13 +226,10 @@ export const OpenInPicker = memo(function OpenInPicker({
   enableShortcut?: boolean;
   displayMode?: "toolbar" | "panel";
   revealFileManager?: boolean;
-  hintPlacement?: KeyboardHintPlacement | undefined;
 }) {
   const isPanel = displayMode === "panel";
   const ActionGroup = isPanel ? "div" : Group;
   const panelAnchorRef = useRef<HTMLDivElement | null>(null);
-  const primaryEditorIconId = useId();
-  const editorCaretIconId = useId();
   const openInEditorMutation = useAtomCommand(shellEnvironment.openInEditor, "open in editor");
   const remote = useRemoteOpenState(environmentId);
   const canOperateHost = useEnvironmentScope(environmentId, AuthOrchestrationOperateScope);
@@ -376,11 +372,7 @@ export const OpenInPicker = memo(function OpenInPicker({
         part="primary"
         panel={isPanel}
         disabled={!preferredEditor || !openInCwd || !canOpenEditor}
-        {...keyboardHintProps({
-          placement: hintPlacement ?? "center",
-          size: "compact",
-          anchorId: primaryEditorIconId,
-        })}
+        {...keyboardHintProps({ size: "compact" })}
         {...(enableShortcut && !backgroundThread ? { [OPEN_FAVORITE_EDITOR_ATTRIBUTE]: "" } : {})}
         onClick={() => {
           if (!preferredEditor) return;
@@ -392,7 +384,6 @@ export const OpenInPicker = memo(function OpenInPicker({
       >
         {primaryOption?.Icon ? (
           <primaryOption.Icon
-            id={primaryEditorIconId}
             aria-hidden="true"
             className={cn(
               isPanel ? THREAD_DETAILS_PANEL_ICON_CLASS : "size-3.5",
@@ -401,7 +392,6 @@ export const OpenInPicker = memo(function OpenInPicker({
           />
         ) : isPanel ? (
           <SquareArrowOutUpRightIcon
-            id={primaryEditorIconId}
             aria-hidden="true"
             className={THREAD_DETAILS_PANEL_ICON_CLASS}
           />
@@ -432,16 +422,11 @@ export const OpenInPicker = memo(function OpenInPicker({
               variant={isPanel ? "ghost" : "outline"}
               part="secondary"
               panel={isPanel}
-              {...keyboardHintProps({
-                placement: hintPlacement ?? "before",
-                size: "compact",
-                anchorId: editorCaretIconId,
-              })}
+              {...keyboardHintProps({ size: "compact" })}
             />
           }
         >
           <ChevronDownIcon
-            id={editorCaretIconId}
             aria-hidden="true"
             className={isPanel ? THREAD_DETAILS_PANEL_CHEVRON_CLASS : "size-4"}
           />

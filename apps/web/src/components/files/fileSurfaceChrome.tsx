@@ -1,4 +1,4 @@
-import { useId, type ReactNode } from "react";
+import type { ReactNode } from "react";
 
 import { Spinner } from "~/components/ui/spinner";
 import { Button } from "~/components/ui/button";
@@ -68,25 +68,7 @@ export function FileSurfaceAction(props: {
   readonly children: ReactNode;
 }) {
   const pressed = props.pressed;
-  const iconId = useId();
-  const hint = props.keyboardHint;
-  const belowIconAnchorId =
-    hint !== undefined && hint.placement === "below" && hint.anchorId === undefined
-      ? iconId
-      : undefined;
-  const hintProps = keyboardHintProps(
-    belowIconAnchorId !== undefined && hint !== undefined
-      ? { ...hint, anchorId: belowIconAnchorId }
-      : (hint ?? {}),
-  );
-  const children =
-    belowIconAnchorId !== undefined ? (
-      <span id={belowIconAnchorId} className="inline-flex shrink-0">
-        {props.children}
-      </span>
-    ) : (
-      props.children
-    );
+  const hintProps = keyboardHintProps(props.keyboardHint ?? {});
   return (
     <Tooltip>
       <TooltipTrigger
@@ -102,7 +84,7 @@ export function FileSurfaceAction(props: {
               size="icon-sm"
               {...hintProps}
             >
-              {children}
+              {props.children}
             </Button>
           ) : (
             <Toggle
@@ -115,7 +97,7 @@ export function FileSurfaceAction(props: {
               size="sm"
               {...hintProps}
             >
-              {children}
+              {props.children}
             </Toggle>
           )
         }

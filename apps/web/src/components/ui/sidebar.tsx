@@ -391,12 +391,7 @@ function Sidebar({
   );
 }
 
-function SidebarTrigger({
-  className,
-  onClick,
-  iconId,
-  ...props
-}: React.ComponentProps<typeof Button> & { readonly iconId?: string }) {
+function SidebarTrigger({ className, onClick, ...props }: React.ComponentProps<typeof Button>) {
   const { toggleSidebar } = useSidebar();
   const isOpen = useSidebarVisibility();
 
@@ -417,11 +412,7 @@ function SidebarTrigger({
       variant="ghost"
       {...props}
     >
-      <MorphIcon
-        className="size-4"
-        icon={isOpen ? PanelLeftClose : PanelLeft}
-        {...(iconId ? { id: iconId } : {})}
-      />
+      <MorphIcon className="size-4" icon={isOpen ? PanelLeftClose : PanelLeft} />
       <span className="sr-only">Toggle Sidebar</span>
     </Button>
   );

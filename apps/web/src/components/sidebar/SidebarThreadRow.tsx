@@ -72,6 +72,7 @@ import { formatRelativeTimeLabel, parseTimestampDate } from "../../timestampForm
 import type { SidebarThreadSummary } from "../../types";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import { cn } from "~/lib/utils";
+import { keyboardHintProps } from "~/lib/keyboardHints";
 import { textDirection } from "~/textDirection";
 import { EnvironmentMachineIcon } from "../EnvironmentMachineIcon";
 import {
@@ -388,6 +389,7 @@ function SnoozeMenuButton(props: {
                 <button
                   type="button"
                   aria-label="Snooze thread"
+                  {...keyboardHintProps({ size: "compact" })}
                   onClick={(event) => event.stopPropagation()}
                   onDoubleClick={(event) => event.stopPropagation()}
                   className="inline-flex h-full cursor-pointer items-center gap-0.5 rounded-md bg-transparent px-1.5 text-xs text-muted-foreground hover:text-foreground"
@@ -933,6 +935,9 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
   if (snoozeMenuOpenRaw && !showSnoozeButton) setSnoozeMenuOpen(false);
   const snoozeMenuOpen = snoozeMenuOpenRaw && showSnoozeButton;
   const jumpHintLabel = snoozeMenuOpen ? null : props.jumpLabel;
+  const hasStatusSlotAction =
+    variantAction === "unsnooze" ? props.snoozeSupported : props.settlementSupported;
+  const hasCardStatusActions = props.settlementSupported || showSnoozeButton || hasUnsentDraft;
   const handlePrClick = (event: ReactMouseEvent<HTMLElement>, targetUrl?: string) => {
     const url = targetUrl ?? pr?.url ?? currentLinkedPr?.url;
     if (!url) return;
@@ -1232,7 +1237,13 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
             }
           >
             {/* `contents` keeps one-line rows a single flex row. */}
-            <div className={multiline ? "flex h-6 min-w-0 items-center gap-2.5" : "contents"}>
+            <div
+              className={cn(
+                multiline ? "flex h-6 min-w-0 items-center gap-2.5" : "contents",
+                // Hover-only action badges sit below the action; keep them off the meta line.
+                multiline && hasStatusSlotAction && "in-data-[keyboard-hints-active]:mb-4",
+              )}
+            >
               {accessibleTitle}
               {inFolder ? null : (
                 <span
@@ -1271,6 +1282,9 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                     className={cn(
                       "inline-flex justify-end tabular-nums text-secondary-label transition-opacity",
                       !isWoke && "group-any-hover/sidebar-row:opacity-0",
+                      !isWoke &&
+                        hasStatusSlotAction &&
+                        "in-data-[keyboard-hints-active]:opacity-0 in-data-[keyboard-hints-active]:transition-none",
                     )}
                   >
                     {variantAction === "unsnooze" && props.snoozeWakeLabelText !== null ? (
@@ -1324,11 +1338,13 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                       <button
                         type="button"
                         aria-label="Wake thread now"
+                        data-keyboard-hint-reveal=""
                         onClick={handleUnsnoozeClick}
                         onPointerDown={handleActionPointerDown}
                         className={cn(
                           "pointer-events-none absolute inset-y-0 right-0 -mr-1 inline-flex cursor-pointer items-center gap-1 rounded-md bg-transparent px-1.5 text-xs text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus-visible:pointer-events-auto focus-visible:opacity-100 group-any-hover/sidebar-row:pointer-events-auto group-any-hover/sidebar-row:opacity-100",
-                          isWoke && "group-any-hover/sidebar-row:static",
+                          isWoke &&
+                            "group-any-hover/sidebar-row:static in-data-[keyboard-hints-active]:static",
                         )}
                       >
                         <AlarmClockOffIcon className="mb-px size-3" />
@@ -1341,11 +1357,13 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                           <button
                             type="button"
                             aria-label="Un-settle thread"
+                            data-keyboard-hint-reveal=""
                             onClick={handleUnsettleClick}
                             onPointerDown={handleActionPointerDown}
                             className={cn(
                               "pointer-events-none absolute inset-y-0 right-0 -mr-1 inline-flex cursor-pointer items-center gap-1 rounded-md bg-transparent px-1.5 text-xs text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus-visible:pointer-events-auto focus-visible:opacity-100 group-any-hover/sidebar-row:pointer-events-auto group-any-hover/sidebar-row:opacity-100",
-                              isWoke && "group-any-hover/sidebar-row:static",
+                              isWoke &&
+                                "group-any-hover/sidebar-row:static in-data-[keyboard-hints-active]:static",
                             )}
                           />
                         }
@@ -1361,11 +1379,14 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                           <button
                             type="button"
                             aria-label="Settle thread"
+                            data-keyboard-hint-reveal=""
+                            {...keyboardHintProps({ size: "compact" })}
                             onClick={handleSettleClick}
                             onPointerDown={handleActionPointerDown}
                             className={cn(
                               "pointer-events-none absolute inset-y-0 right-0 inline-flex cursor-pointer items-center gap-1 rounded-md bg-transparent px-2 text-xs text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus-visible:pointer-events-auto focus-visible:opacity-100 group-any-hover/sidebar-row:pointer-events-auto group-any-hover/sidebar-row:opacity-100",
-                              isWoke && "group-any-hover/sidebar-row:static",
+                              isWoke &&
+                                "group-any-hover/sidebar-row:static in-data-[keyboard-hints-active]:static",
                             )}
                           />
                         }
@@ -1425,9 +1446,18 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
             className={cn(
               "relative z-10 h-[4.875rem] px-(--sidebar-row-content-inset) py-(--sidebar-content-inset)",
               metaLineEmpty && "h-auto",
+              hasCardStatusActions &&
+                !metaLineEmpty &&
+                "in-data-[keyboard-hints-active]:h-[calc(4.875rem+1rem)]",
             )}
           >
-            <div className="flex h-5 min-w-0 items-center gap-1.5">
+            <div
+              className={cn(
+                "flex h-5 min-w-0 items-center gap-1.5",
+                // Hover-only action badges sit below the actions; keep them off the title.
+                hasCardStatusActions && "in-data-[keyboard-hints-active]:mb-4",
+              )}
+            >
               {draftIndicator}
               {props.project ? (
                 <ProjectFavicon project={props.project} className="size-4 shrink-0" />
@@ -1459,6 +1489,9 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                       isWokeStatus
                         ? "pointer-events-auto"
                         : "pointer-events-none group-has-[:focus-visible]/sidebar-status-slot:absolute group-has-[:focus-visible]/sidebar-status-slot:right-0 group-has-[:focus-visible]/sidebar-status-slot:opacity-0 group-any-hover/sidebar-row:absolute group-any-hover/sidebar-row:right-0 group-any-hover/sidebar-row:opacity-0",
+                      !isWokeStatus &&
+                        hasCardStatusActions &&
+                        "in-data-[keyboard-hints-active]:absolute in-data-[keyboard-hints-active]:right-0 in-data-[keyboard-hints-active]:opacity-0",
                       "flex items-center self-center justify-self-end tabular-nums text-secondary-label",
                       snoozeMenuOpen && "pointer-events-none absolute right-0 opacity-0",
                     )}
@@ -1511,12 +1544,13 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                       <RelativeTimeLabel timestamp={threadTimeTimestamp(thread)} />
                     )}
                   </span>
-                  {props.settlementSupported || showSnoozeButton || hasUnsentDraft ? (
+                  {hasCardStatusActions ? (
                     <span
+                      data-keyboard-hint-reveal=""
                       className={cn(
                         // Mouse clicks leave Settle focused; focus-within would pin controls over
                         // the status label after the pointer leaves. Use focus-visible instead.
-                        "pointer-events-none absolute inset-y-0 right-0 flex items-stretch opacity-0 has-[:focus-visible]:pointer-events-auto has-[:focus-visible]:static has-[:focus-visible]:opacity-100 group-any-hover/sidebar-row:pointer-events-auto group-any-hover/sidebar-row:static group-any-hover/sidebar-row:opacity-100",
+                        "pointer-events-none absolute inset-y-0 right-0 flex items-stretch opacity-0 has-[:focus-visible]:pointer-events-auto has-[:focus-visible]:static has-[:focus-visible]:opacity-100 group-any-hover/sidebar-row:pointer-events-auto group-any-hover/sidebar-row:static group-any-hover/sidebar-row:opacity-100 in-data-[keyboard-hints-active]:static",
                         snoozeMenuOpen && "pointer-events-auto static opacity-100",
                       )}
                     >
@@ -1527,6 +1561,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                               <button
                                 type="button"
                                 aria-label="Discard draft"
+                                {...keyboardHintProps({ size: "compact" })}
                                 onClick={handleDiscardDraftClick}
                                 className="inline-flex cursor-pointer items-center rounded-md bg-transparent px-1.5 text-xs text-muted-foreground hover:text-foreground"
                               />
@@ -1553,6 +1588,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                               <button
                                 type="button"
                                 aria-label="Settle thread"
+                                {...keyboardHintProps({ size: "compact" })}
                                 onClick={handleSettleClick}
                                 onPointerDown={handleActionPointerDown}
                                 className="-mr-1 inline-flex cursor-pointer items-center gap-1 rounded-md bg-transparent px-1.5 text-xs text-muted-foreground hover:text-foreground"

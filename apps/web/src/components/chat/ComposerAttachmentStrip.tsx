@@ -7,7 +7,7 @@ import type {
 } from "@t3tools/contracts";
 import { formatAttachmentSize } from "@t3tools/client-runtime/state/attachments";
 import { CircleAlertIcon, PaperclipIcon, PlayIcon, XIcon } from "lucide-react";
-import { type ComponentProps, useId, useLayoutEffect, useRef } from "react";
+import { type ComponentProps, useLayoutEffect, useRef } from "react";
 
 import {
   type ComposerFileAttachment,
@@ -677,7 +677,6 @@ export function ComposerAttachButton({
   readonly focusComposer: () => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
-  const attachIconId = useId();
   return (
     <>
       <input
@@ -706,16 +705,12 @@ export function ComposerAttachButton({
               onPointerDown={(event) => event.preventDefault()}
               onClick={() => inputRef.current?.click()}
               aria-label="Attach files"
-              {...keyboardHintProps({
-                placement: "after",
-                size: "compact",
-                anchorId: attachIconId,
-              })}
+              {...keyboardHintProps({ size: "compact" })}
             />
           }
         >
           {/* The clip's weight sits in its upper loop; 1px down reads as centered on the row. */}
-          <PaperclipIcon id={attachIconId} className="translate-y-px" />
+          <PaperclipIcon className="translate-y-px" />
         </TooltipTrigger>
         <TooltipPopup>Attach files</TooltipPopup>
       </Tooltip>

@@ -112,18 +112,18 @@ export function KeyboardHints() {
 }
 
 function HintCommandGuide({
-  bottom,
+  position,
   detail,
   pullRequestsSupported,
 }: {
-  readonly bottom: number | undefined;
+  readonly position: KeyboardHintsState["commandGuidePosition"];
   readonly detail: string;
   readonly pullRequestsSupported: boolean;
 }) {
   return (
     <aside
       aria-label="Hint commands"
-      style={bottom === undefined ? undefined : { bottom }}
+      style={position}
       className="fixed right-4 bottom-4 flex w-max max-w-64 flex-col gap-2 rounded-lg border border-border bg-popover px-2.5 py-2 text-popover-foreground text-xs shadow-md"
     >
       <div className="flex min-w-0 items-center gap-2">
@@ -166,13 +166,10 @@ function HintOverlay({
               dir="ltr"
               className={cn(
                 "absolute inline-flex h-[16px] items-center gap-px overflow-hidden rounded-sm border border-foreground bg-foreground bg-no-repeat font-mono font-semibold text-2xs leading-none text-background shadow-sm",
-                target.placement === "inline" && "-translate-y-1/2",
-                target.placement === "text-start" && "-translate-y-1/2",
-                target.placement === "above" && "-translate-x-1/2 -translate-y-full",
-                target.placement === "below" && "-translate-x-1/2",
-                target.placement === "before" && "-translate-x-full -translate-y-1/2",
-                target.placement === "after" && "-translate-y-1/2",
                 target.placement === "center" && "-translate-1/2",
+                target.placement === "text-start" && "-translate-y-1/2",
+                (target.placement === "below" || target.placement === "above") &&
+                  "-translate-x-1/2",
               )}
               style={{
                 left: Math.max(4, target.left),
@@ -201,7 +198,7 @@ function HintOverlay({
       </div>
       {state.prefix === "" ? (
         <HintCommandGuide
-          bottom={state.commandGuideBottom}
+          position={state.commandGuidePosition}
           detail={commandDetail}
           pullRequestsSupported={pullRequestsSupported}
         />
