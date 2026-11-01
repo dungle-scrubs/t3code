@@ -96,9 +96,53 @@ it.effect("pulls origin/main and rebuilds when HEAD moves", () =>
       ["rev-parse", "HEAD"],
       ["pull", "--ff-only", "origin", "main"],
       ["rev-parse", "HEAD"],
+      ["i"],
       ["run", "build:desktop"],
     ]);
     expect(commands[4]?.[0]).toBe(vp);
+    expect(commands[5]?.[0]).toBe(vp);
+  }).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.effect("reports the build's error line instead of its stack trace", () =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const checkout = yield* fs.makeTempDirectoryScoped({ prefix: "t3-fork-sync-" });
+    const vp = path.join(checkout, "node_modules", ".bin", "vp");
+    yield* fs.makeDirectory(path.dirname(vp), { recursive: true });
+    yield* fs.writeFileString(vp, "");
+    const heads = ["aaa", "bbb"];
+    const runner = ProcessRunner.ProcessRunner.of({
+      run: (input) =>
+        Effect.sync(() => {
+          if (input.args[0] === "remote") {
+            return output("git@github.com:dungle-scrubs/t3code.git\n");
+          }
+          if (input.args[0] === "rev-parse") return output(`${heads.shift()}\n`);
+          if (input.args[0] === "run") {
+            return {
+              ...output("", 1),
+              stderr: [
+                "error during build:",
+                'Error: [vite+]: Rolldown failed to resolve import "@tiptap/extension-bold".',
+                "    at aggregateBindingErrorsIntoJsError (file:///x/error.mjs:49:18)",
+                "  errors: [Getter/Setter]",
+              ].join("\n"),
+            };
+          }
+          return output("");
+        }),
+    });
+
+    const error = yield* syncForkCheckout(checkout).pipe(
+      Effect.provideService(ProcessRunner.ProcessRunner, runner),
+      Effect.flip,
+    );
+
+    expect(error.reason).toBe(
+      'vp run build:desktop failed: Error: [vite+]: Rolldown failed to resolve import "@tiptap/extension-bold".',
+    );
   }).pipe(Effect.provide(NodeServices.layer)),
 );
 

@@ -90,8 +90,14 @@ export const forkCheckoutSyncAvailable = Effect.fn("cloud.forkCheckoutSync.avail
   },
 );
 
-const tail = (text: string) => {
+/** The first line that names an error, or else the end of the output; build stacks bury the cause. */
+const failureDetail = (text: string) => {
   const trimmed = text.trim();
+  const errorLine = trimmed
+    .split("\n")
+    .map((line) => line.trim())
+    .find((line) => /^\w*Error\b/.test(line));
+  if (errorLine !== undefined) return errorLine.slice(0, 500);
   return trimmed.length <= 500 ? trimmed : trimmed.slice(trimmed.length - 500);
 };
 
@@ -113,8 +119,10 @@ export const syncForkCheckout = Effect.fn("cloud.forkCheckoutSync")(function* (c
   const finished = (result: ProcessRunner.ProcessRunOutput, command: string) => {
     if (result.timedOut) return Effect.fail(failed(`${command} timed out.`));
     if (result.code !== 0) {
-      const detail = tail(result.stderr || result.stdout);
-      return Effect.fail(failed(detail === "" ? `${command} failed.` : detail));
+      const detail = failureDetail(result.stderr || result.stdout);
+      return Effect.fail(
+        failed(detail === "" ? `${command} failed.` : `${command} failed: ${detail}`),
+      );
     }
     return Effect.succeed(result.stdout.trim());
   };
@@ -145,6 +153,8 @@ export const syncForkCheckout = Effect.fn("cloud.forkCheckoutSync")(function* (c
   if (!vpExists) {
     return yield* failed(`vp is missing in ${checkout}. Run vp i there first.`);
   }
+  // A pull that brings upstream changes often changes dependencies too.
+  yield* finished(yield* run(vp, ["i"], BUILD_TIMEOUT), "vp i");
   yield* finished(yield* run(vp, ["run", "build:desktop"], BUILD_TIMEOUT), "vp run build:desktop");
   return { before, after, built: true } satisfies ForkCheckoutSyncResult;
 });
