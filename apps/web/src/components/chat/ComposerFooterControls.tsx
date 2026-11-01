@@ -9,6 +9,7 @@ import { BotIcon, PencilRulerIcon } from "lucide-react";
 import { type ComponentProps, memo, useId, useRef, useState } from "react";
 
 import type { ContextWindowSnapshot } from "../../lib/contextWindow";
+import { keyboardHintProps } from "../../lib/keyboardHints";
 import { Menu as MenuPrimitive } from "@base-ui/react/menu";
 import { Menu, MenuPopup, MenuTrigger } from "../ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -42,6 +43,7 @@ export const ComposerFooterModeControls = memo(function ComposerFooterModeContro
 }) {
   const size = props.size ?? "sm";
   const accessDisplay = props.accessDisplay ?? "label";
+  const permissionLabelId = useId();
   const composerFloatingLayerProps = useComposerMenuProps();
   const [open, setOpen] = useComposerMenuState(props.hidden);
   const permissionsChipRef = useRef<HTMLButtonElement>(null);
@@ -115,6 +117,13 @@ export const ComposerFooterModeControls = memo(function ComposerFooterModeContro
                   // Mirrors the model trigger's trailing pe-1 so the gaps on both sides of the chip match.
                   className="ps-1.5"
                   aria-label={`Permissions: ${runtimeModeOption.label}`}
+                  {...(accessDisplay === "label"
+                    ? keyboardHintProps({
+                        placement: "after",
+                        size: "compact",
+                        anchorId: permissionLabelId,
+                      })
+                    : {})}
                 />
               }
             />
@@ -129,6 +138,7 @@ export const ComposerFooterModeControls = memo(function ComposerFooterModeContro
           <span
             data-composer-control-label
             className={accessDisplay === "icon" ? "sr-only" : undefined}
+            {...(accessDisplay === "label" ? { id: permissionLabelId } : {})}
           >
             {runtimeModeOption.label}
           </span>

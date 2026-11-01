@@ -5,10 +5,11 @@ import {
   type ProviderDriverKind,
   type ResolvedKeybindingsConfig,
 } from "@t3tools/contracts";
-import { createContext, memo, type ReactNode, useRef, useState } from "react";
+import { createContext, memo, type ReactNode, useId, useRef, useState } from "react";
 import { Badge } from "../ui/badge";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { keyboardHintProps } from "~/lib/keyboardHints";
 import { cn } from "~/lib/utils";
 import { ModelPickerContent, resolveModelPickerSelectedModel } from "./ModelPickerContent";
 import { ChatGptSharingControl } from "./ChatGptSharingControl";
@@ -119,6 +120,7 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
   const searchInputRef = useRef<HTMLInputElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const popupRef = useRef<HTMLDivElement | null>(null);
+  const modelIconId = useId();
   const size = props.size ?? "sm";
   const docked = props.effortColumn !== undefined;
 
@@ -325,6 +327,9 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
               ).preventBaseUIHandler?.();
               openTarget(target);
             }}
+            {...(props.isComposerOwned
+              ? keyboardHintProps({ placement: "center", size: "compact", anchorId: modelIconId })
+              : {})}
             className={cn(
               "min-w-0 shrink justify-between whitespace-nowrap",
               props.compact
@@ -341,6 +346,7 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
         >
           {selectedEntries && props.triggerLabel === undefined ? (
             <span
+              id={props.isComposerOwned ? modelIconId : undefined}
               data-chat-provider-model-picker-icon
               className="flex shrink-0 items-center -space-x-1"
               aria-hidden="true"
@@ -369,7 +375,11 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
             </span>
           ) : activeEntry && props.triggerLabel === undefined ? (
             // Narrow compacted composers hide the provider icon before truncating the name.
-            <span data-chat-provider-model-picker-icon className="contents">
+            <span
+              id={props.isComposerOwned ? modelIconId : undefined}
+              data-chat-provider-model-picker-icon
+              className={props.isComposerOwned ? "inline-flex shrink-0" : "contents"}
+            >
               <ProviderInstanceIcon
                 driverKind={activeEntry.driverKind}
                 displayName={activeEntry.displayName}

@@ -2,6 +2,7 @@ import { useAtomValue } from "@effect/atom-react";
 import * as Schema from "effect/Schema";
 import {
   useEffect,
+  useId,
   useState,
   useSyncExternalStore,
   type CSSProperties,
@@ -29,6 +30,7 @@ import { isTerminalFocused } from "../lib/terminalFocus";
 import { isModelPickerOpen } from "../modelPickerVisibility";
 import { selectActiveRightPanel, useRightPanelStore } from "../rightPanelStore";
 import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../terminalUiStateStore";
+import { keyboardHintProps } from "../lib/keyboardHints";
 import { cn, isMacPlatform } from "../lib/utils";
 import { primaryServerKeybindingsAtom } from "../state/server";
 import { useEnvironmentIdentificationMode } from "../hooks/useSettings";
@@ -323,6 +325,7 @@ function SidebarControl() {
   const shortcutLabel = shortcutLabelForCommand(keybindings, "sidebar.toggle", {
     context: { usagePageOpen },
   });
+  const sidebarToggleIconId = useId();
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- window keydown listener that toggles the sidebar on its shortcut
   useEffect(() => {
@@ -384,12 +387,18 @@ function SidebarControl() {
         <TooltipTrigger
           render={
             <SidebarTrigger
+              iconId={sidebarToggleIconId}
               variant={isSidebarVisible && stageBackdropVariant ? "media-navigation" : "ghost"}
               className={cn(
                 "pointer-events-auto",
                 isSidebarVisible && stageBackdropVariant && "relative top-auto translate-y-0",
               )}
               aria-label="Toggle main sidebar"
+              {...keyboardHintProps({
+                placement: "below",
+                size: "compact",
+                anchorId: sidebarToggleIconId,
+              })}
             />
           }
         />

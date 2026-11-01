@@ -12,6 +12,7 @@ import {
 } from "./MessagesTimeline.logic";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { cn } from "~/lib/utils";
+import { keyboardHintProps } from "~/lib/keyboardHints";
 
 function timelineMinimapEventTargetsPreview(target: EventTarget): boolean {
   return target instanceof Element && target.closest("[data-minimap-preview]") !== null;
@@ -158,6 +159,7 @@ export function TimelineMinimap({
           <button
             aria-label={`Jump to message: ${activeItem?.userText ?? "User message"}`}
             className="absolute inset-y-0 left-0 w-full cursor-pointer bg-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
+            {...keyboardHintProps({ skip: true })}
             onBlur={() => setActiveIndex(null)}
             onClick={(event) => {
               if (timelineMinimapEventTargetsPreview(event.target)) {

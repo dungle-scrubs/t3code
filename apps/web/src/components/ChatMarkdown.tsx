@@ -148,6 +148,7 @@ import {
 import { isMarkdownFileLinkLabel } from "@t3tools/shared/markdownLinks";
 import { isElectron } from "../env";
 import { readLocalApi } from "../localApi";
+import { keyboardHintProps } from "../lib/keyboardHints";
 import { cn } from "../lib/utils";
 import { resolveRemoteOpenState, useRemoteOpenResolution } from "../remoteOpen";
 import { useRightPanelStore } from "../rightPanelStore";
@@ -1145,6 +1146,7 @@ const CHAT_MARKDOWN_COMPONENTS = {
           className={cn(props.className, pullRequestAutolink === "commit" && "font-mono")}
           data-markdown-copy={pullRequestCopy}
           data-markdown-image-link={!hasText || undefined}
+          {...(hasText ? keyboardHintProps({ placement: "inline", size: "compact" }) : {})}
           href={href}
           target={isSameDocumentLink ? undefined : "_blank"}
           rel={isSameDocumentLink ? undefined : "noopener noreferrer"}

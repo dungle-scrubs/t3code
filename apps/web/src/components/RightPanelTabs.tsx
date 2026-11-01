@@ -55,6 +55,7 @@ import {
   type ReactNode,
   useEffect,
   useEffectEvent,
+  useId,
   useRef,
   useState,
 } from "react";
@@ -62,6 +63,7 @@ import {
 import { isElectron } from "~/env";
 import type { DesktopPreviewOverlay } from "~/previewStateStore";
 import type { RightPanelSurface } from "~/rightPanelStore";
+import { keyboardHintProps } from "~/lib/keyboardHints";
 import { cn } from "~/lib/utils";
 import { resolveShortcutCommand, type ShortcutMatchContext } from "~/keybindings";
 import { readLocalApi } from "~/localApi";
@@ -883,6 +885,7 @@ function RightPanelTab(
     renaming: boolean;
     canRename: boolean;
     ownsDesktopTitleBar: boolean;
+    focusScopeId: string;
   },
 ) {
   const {
@@ -907,9 +910,20 @@ function RightPanelTab(
   );
   const title = sideChatShell?.title ?? props.title;
   const sideChatState = sideChatTabState(sideChatShell);
+  const titleId = useId();
+  const closeIconId = useId();
+  const isFileTab = surface.kind === "file" || surface.kind === "files";
   const content = (
     <>
-      <PanelTabCloseButton label={`Close ${title}`} onClick={() => onClose(surface)}>
+      <PanelTabCloseButton
+        label={`Close ${title}`}
+        onClick={() => onClose(surface)}
+        revealCloseOnHints={isFileTab}
+        closeIconId={isFileTab ? closeIconId : undefined}
+        keyboardHint={
+          isFileTab ? { placement: "below", size: "compact", anchorId: closeIconId } : undefined
+        }
+      >
         <SurfaceIcon
           surface={surface}
           previewUrl={props.previewUrl}
@@ -978,8 +992,18 @@ function RightPanelTab(
                 className="cursor-pointer flex min-w-0 items-center"
                 aria-label={sideChatState === null ? undefined : `${title}, ${sideChatState}`}
                 onClick={() => onActivate(surface)}
+                {...(isFileTab
+                  ? keyboardHintProps({
+                      placement: "below",
+                      size: "compact",
+                      anchorId: titleId,
+                      ...(props.active ? { focusScopeId: props.focusScopeId } : {}),
+                    })
+                  : {})}
               >
-                <span className="truncate">{title}</span>
+                <span id={isFileTab ? titleId : undefined} className="truncate">
+                  {title}
+                </span>
               </button>
             }
           />
@@ -1023,6 +1047,7 @@ function RightPanelTab(
 }
 
 export function RightPanelTabs(props: RightPanelTabsProps) {
+  const focusScopeId = useId();
   const focusedSurface = props.surfaces.find((surface) => surface.id === props.activeSurfaceId);
   const ownsDesktopTitleBar = isElectron && props.mode === "inline";
   const browserProfiles = useBrowserDefaults().profiles;
@@ -1317,6 +1342,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
 
   return (
     <PreviewPanelShell
+      id={focusScopeId}
       workspaceArea
       workspaceFocusKey={`panel:${props.environmentId}:${props.activeSurfaceId ?? "empty"}`}
       workspaceLabel={
@@ -1380,6 +1406,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
                     renaming={renamingDevice === surface.id}
                     canRename={props.onRenameDevice !== undefined}
                     ownsDesktopTitleBar={ownsDesktopTitleBar}
+                    focusScopeId={focusScopeId}
                     onActivate={onActivateTab}
                     onClose={onCloseTab}
                     onAuxClick={onTabAuxClick}
@@ -1400,6 +1427,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
                       className="shrink-0"
                       size="icon-xs"
                       variant="ghost-muted"
+                      {...keyboardHintProps({ placement: "center", size: "compact" })}
                     />
                   }
                 >

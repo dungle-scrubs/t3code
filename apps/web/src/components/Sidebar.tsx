@@ -71,6 +71,7 @@ import {
 } from "lucide-react";
 import {
   useEffect,
+  useId,
   useLayoutEffect,
   useReducer,
   useRef,
@@ -169,6 +170,7 @@ import {
 } from "../threadRoutes";
 import type { SidebarThreadSummary } from "../types";
 import { isScratchProject } from "@t3tools/client-runtime/state/projects";
+import { keyboardHintProps } from "~/lib/keyboardHints";
 import { cn } from "~/lib/utils";
 import { ProjectEnvironmentBadge } from "./ProjectEnvironmentBadge";
 import {
@@ -912,6 +914,7 @@ function readRouteThreadKey(router: AnyRouter): string | null {
 }
 
 export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReveal }) {
+  const settledMoreLabelId = useId();
   const {
     projects,
     serverConfigs,
@@ -3583,6 +3586,11 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                           tabIndex={-1}
                           data-sidebar-row="settled:more"
                           data-sidebar-parent="shelf:settled"
+                          {...keyboardHintProps({
+                            placement: "after",
+                            size: "compact",
+                            anchorId: settledMoreLabelId,
+                          })}
                           disabled={olderSettledShelf.loading}
                           onClick={() => {
                             olderSettledShelf.retry();
@@ -3592,11 +3600,13 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                         >
                           {/* Plus means "add", so revealing more uses a chevron. */}
                           <ChevronDownIcon aria-hidden className="size-4 shrink-0" />
-                          {olderSettledShelf.loading
-                            ? "Loading"
-                            : olderSettledShelf.failed
-                              ? "Could not load older threads. Retry"
-                              : `Show ${Math.min(hiddenSettledCount, SETTLED_TAIL_PAGE_COUNT)} more`}
+                          <span id={settledMoreLabelId}>
+                            {olderSettledShelf.loading
+                              ? "Loading"
+                              : olderSettledShelf.failed
+                                ? "Could not load older threads. Retry"
+                                : `Show ${Math.min(hiddenSettledCount, SETTLED_TAIL_PAGE_COUNT)} more`}
+                          </span>
                         </button>
                       </li>
                     ) : null}

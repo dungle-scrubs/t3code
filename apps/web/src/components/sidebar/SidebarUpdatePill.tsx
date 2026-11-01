@@ -5,6 +5,7 @@ import { flushSync } from "react-dom";
 import { settlePromise, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { isElectron } from "../../env";
 import { useMediaQuery } from "../../hooks/useMediaQuery";
+import { keyboardHintProps } from "../../lib/keyboardHints";
 import { cn } from "../../lib/utils";
 import { ensureLocalApi } from "../../localApi";
 import { useDesktopUpdateState } from "../../state/desktopUpdate";
@@ -199,6 +200,7 @@ function SidebarUpdateControl() {
   const suppressReleaseNotesFocusOpen = useRef(false);
   const releaseNotesPopupRef = useRef<HTMLDivElement>(null);
   const releaseNotesTriggerId = useId();
+  const updateIconId = useId();
   const prefersReducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
 
   const updateStatus = state?.status;
@@ -445,6 +447,7 @@ function SidebarUpdateControl() {
       type="button"
       aria-label={idleTooltip?.detail ? `${tooltip}: ${idleTooltip.detail}` : tooltip}
       aria-disabled={isInteractionDisabled || undefined}
+      {...keyboardHintProps({ placement: "above", size: "compact", anchorId: updateIconId })}
       className={cn(
         "inline-flex size-8 items-center justify-center rounded-full outline-hidden ring-ring transition-colors focus-visible:ring-2 focus-visible:ring-inset",
         isInteractionDisabled ? "cursor-not-allowed" : "cursor-pointer",
@@ -483,7 +486,9 @@ function SidebarUpdateControl() {
         );
       }}
     >
-      {statusIcon}
+      <span id={updateIconId} className="inline-flex shrink-0">
+        {statusIcon}
+      </span>
     </button>
   );
 

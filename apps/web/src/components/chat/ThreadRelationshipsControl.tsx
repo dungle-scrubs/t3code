@@ -55,7 +55,7 @@ import {
   SquareIcon,
   UnplugIcon,
 } from "lucide-react";
-import { useRef, useState, type ReactNode } from "react";
+import { useId, useRef, useState, type ReactNode } from "react";
 
 import { useArchivedThreadSnapshots } from "../../lib/archivedThreadsState";
 import { buildThreadRouteParams } from "../../threadRoutes";
@@ -83,6 +83,7 @@ import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { toastManager } from "../ui/toast";
 import { Spinner } from "../ui/spinner";
+import { keyboardHintProps } from "~/lib/keyboardHints";
 import { cn } from "~/lib/utils";
 import {
   THREAD_DETAILS_PANEL_CHEVRON_CLASS,
@@ -140,6 +141,7 @@ function ThreadLineageGroup(props: {
 }) {
   const [expanded, setExpanded] = useState(props.expanded);
   const [visibleCount, setVisibleCount] = useState(THREAD_LINEAGE_INITIAL_COUNT);
+  const caretId = useId();
   const { visibleRows, hiddenCount } = resolveThreadLineageWindow(props.rows, visibleCount);
   const failedCount = props.rows.filter(
     ({ edge }) => edge.status === "failed" || edge.status === "error",
@@ -148,7 +150,11 @@ function ThreadLineageGroup(props: {
   return (
     <div>
       {props.label ? (
-        <ThreadDetailsControl aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>
+        <ThreadDetailsControl
+          aria-expanded={expanded}
+          onClick={() => setExpanded(!expanded)}
+          {...keyboardHintProps({ placement: "before", size: "compact", anchorId: caretId })}
+        >
           <BotIcon aria-hidden className={THREAD_DETAILS_PANEL_ICON_CLASS} />
           <span className={cn(THREAD_DETAILS_PANEL_LABEL_CLASS, "min-w-0 flex-1 truncate")}>
             {props.label}
@@ -160,6 +166,7 @@ function ThreadLineageGroup(props: {
             </span>
           )}
           <ChevronDownIcon
+            id={caretId}
             aria-hidden
             className={cn(
               THREAD_DETAILS_PANEL_CHEVRON_CLASS,
@@ -870,6 +877,7 @@ export function ThreadRelationshipsPanel(props: {
                       part="icon"
                       aria-label="More thread actions"
                       disabled={busyAction !== null}
+                      {...keyboardHintProps({ placement: "before", size: "compact" })}
                     />
                   }
                 >

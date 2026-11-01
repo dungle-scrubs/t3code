@@ -1,5 +1,5 @@
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
-import type { EnvironmentId, ScopedThreadRef } from "@t3tools/contracts";
+import type { EnvironmentId, RepositoryIdentity, ScopedThreadRef } from "@t3tools/contracts";
 
 import { useProjects } from "~/state/entities";
 
@@ -10,6 +10,7 @@ export interface ActiveProjectTarget {
   readonly cwd: string;
   readonly projectName: string;
   readonly threadRef: ScopedThreadRef;
+  readonly repositoryIdentity: RepositoryIdentity | null;
 }
 
 export function useActiveProjectTarget(): ActiveProjectTarget | null {
@@ -32,5 +33,6 @@ export function useActiveProjectTarget(): ActiveProjectTarget | null {
     cwd,
     projectName: project.title,
     threadRef: scopeThreadRef(thread.environmentId, threadId),
+    repositoryIdentity: project.repositoryIdentity ?? null,
   };
 }

@@ -12,6 +12,7 @@ import { RightPanelResizeHandle } from "./RightPanelResizeHandle";
 export type PreviewPanelMode = "inline" | "sheet" | "sidebar" | "embedded";
 
 interface PreviewPanelShellProps {
+  id?: string;
   workspaceArea?: boolean;
   workspaceFocusKey?: string;
   workspaceLabel?: string;
@@ -116,6 +117,7 @@ function PreviewPanelShellFrame(
   }, [collapsible, open, hostRef]);
   return (
     <div
+      id={props.id}
       ref={attachHost}
       {...(props.workspaceArea ? panelArea : {})}
       data-workspace-focus-key={props.workspaceFocusKey}

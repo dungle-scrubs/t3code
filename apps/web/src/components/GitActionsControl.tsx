@@ -21,7 +21,7 @@ import type {
 } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import * as Option from "effect/Option";
-import { useEffect, useEffectEvent, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useId, useRef, useState } from "react";
 import { useDeadlinePassed } from "../hooks/useDeadline";
 import { useNowSecond } from "../hooks/useNowSecond";
 import { flushSync } from "react-dom";
@@ -41,6 +41,7 @@ import { Radio as RadioPrimitive } from "@base-ui/react/radio";
 import { RadioGroup } from "~/components/ui/radio-group";
 import { Spinner } from "~/components/ui/spinner";
 import { Toggle, ToggleGroup } from "~/components/ui/toggle-group";
+import { keyboardHintProps } from "~/lib/keyboardHints";
 import { cn } from "~/lib/utils";
 import {
   buildMenuItems,
@@ -933,6 +934,7 @@ export default function GitActionsControl({
   onOpenChanges,
 }: GitActionsControlProps) {
   const panelAnchorRef = useRef<HTMLDivElement | null>(null);
+  const gitActionOptionsCaretId = useId();
   const updateThreadMetadata = useAtomCommand(
     threadEnvironment.updateMetadata,
     "thread branch metadata update",
@@ -1604,11 +1606,17 @@ export default function GitActionsControl({
                       variant="ghost"
                       part="secondary"
                       panel
+                      {...keyboardHintProps({
+                        placement: "before",
+                        size: "compact",
+                        anchorId: gitActionOptionsCaretId,
+                      })}
                     />
                   }
                   disabled={isGitActionRunning}
                 >
                   <ChevronDownIcon
+                    id={gitActionOptionsCaretId}
                     aria-hidden="true"
                     className={THREAD_DETAILS_PANEL_CHEVRON_CLASS}
                   />

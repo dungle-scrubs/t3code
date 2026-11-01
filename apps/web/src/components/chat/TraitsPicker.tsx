@@ -22,7 +22,7 @@ import {
   isClaudeUltrathinkPrompt,
   normalizeModelSlug,
 } from "@t3tools/shared/model";
-import { memo } from "react";
+import { memo, useRef } from "react";
 import { GaugeIcon } from "lucide-react";
 import {
   Menu,
@@ -39,6 +39,7 @@ import { cn } from "~/lib/utils";
 import { Badge } from "../ui/badge";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { ComposerControl, ComposerControlIcon, type ComposerControlSize } from "./ComposerControl";
+import { focusSelectedComposerTrait } from "./composerEventScope";
 import { useComposerMenuState } from "./useComposerMenuState";
 
 type ProviderOptions = ReadonlyArray<ProviderOptionSelection>;
@@ -490,6 +491,7 @@ export const TraitsPicker = memo(function TraitsPicker({
   disabled?: boolean;
 }) {
   const [isMenuOpen, setIsMenuOpen] = useComposerMenuState(hidden || disabled);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const traits = useTraitsSelection(props);
   if (!traits.hasAnyControls) {
     return null;
@@ -513,6 +515,9 @@ export const TraitsPicker = memo(function TraitsPicker({
       onOpenChange={(open) => {
         setIsMenuOpen(open && !disabled);
       }}
+      onOpenChangeComplete={(open) => {
+        focusSelectedComposerTrait(open, triggerRef.current);
+      }}
     >
       <Tooltip>
         <TooltipTrigger
@@ -520,6 +525,7 @@ export const TraitsPicker = memo(function TraitsPicker({
             <MenuTrigger
               render={
                 <ComposerControl
+                  ref={triggerRef}
                   disabled={disabled}
                   aria-label={triggerLabel}
                   size={size}
