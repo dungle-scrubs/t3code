@@ -32,7 +32,7 @@ export const MAX_KEYBOARD_HINT_TARGETS =
  * Where a badge sits, derived from the rendered target: over its leading icon, at the start of
  * its text, centred on a target with no content, or beside a control that shows only on hover.
  */
-export type KeyboardHintPlacement = "center" | "text-start" | "below" | "above";
+export type KeyboardHintPlacement = "center" | "text-start" | "below" | "above" | "left";
 export type KeyboardHintSize = "default" | "compact";
 
 export interface KeyboardHintTarget {
@@ -127,6 +127,8 @@ const HINT_SKIP_ATTRIBUTE = "data-keyboard-hint-skip";
 
 const HINT_ANCHOR_ID_ATTRIBUTE = "data-keyboard-hint-anchor-id";
 
+const HINT_HOVER_SIDE_ATTRIBUTE = "data-keyboard-hint-hover-side";
+
 const HINT_FOCUS_SCOPE_ID_ATTRIBUTE = "data-keyboard-hint-focus-scope-id";
 
 /** Set on the document element while hints show; index.css reveals the opted-in hover rows. */
@@ -156,12 +158,15 @@ export function keyboardHintProps(options: {
   readonly anchorId?: string;
   /** Drop this candidate while the element with this id contains document focus. */
   readonly focusScopeId?: string;
+  /** Dense hover columns whose badge would cover the next row sit left of the control instead. */
+  readonly hoverSide?: "left";
 }): Partial<
   Record<
     | typeof HINT_SIZE_ATTRIBUTE
     | typeof HINT_SKIP_ATTRIBUTE
     | typeof HINT_ANCHOR_ID_ATTRIBUTE
-    | typeof HINT_FOCUS_SCOPE_ID_ATTRIBUTE,
+    | typeof HINT_FOCUS_SCOPE_ID_ATTRIBUTE
+    | typeof HINT_HOVER_SIDE_ATTRIBUTE,
     string
   >
 > {
@@ -170,6 +175,7 @@ export function keyboardHintProps(options: {
     ...(options.skip ? { [HINT_SKIP_ATTRIBUTE]: "" } : {}),
     ...(options.anchorId ? { [HINT_ANCHOR_ID_ATTRIBUTE]: options.anchorId } : {}),
     ...(options.focusScopeId ? { [HINT_FOCUS_SCOPE_ID_ATTRIBUTE]: options.focusScopeId } : {}),
+    ...(options.hoverSide ? { [HINT_HOVER_SIDE_ATTRIBUTE]: options.hoverSide } : {}),
   };
 }
 
@@ -312,6 +318,9 @@ function hintPosition(
   const centerX = rect.left + rect.width / 2;
   const centerY = rect.top + rect.height / 2;
   if (isHoverOnly(element)) {
+    if (element.getAttribute(HINT_HOVER_SIDE_ATTRIBUTE) === "left") {
+      return { placement: "left", left: rect.left - HINT_BADGE_GAP, top: centerY };
+    }
     const viewportHeight = element.ownerDocument.defaultView?.innerHeight ?? 0;
     const below = rect.bottom + HINT_BADGE_GAP;
     if (viewportHeight <= 0 || below + HINT_BADGE_HEIGHT <= viewportHeight - HINT_VIEWPORT_MARGIN) {
@@ -920,6 +929,7 @@ export function createKeyboardHintsController(
         HINT_FOCUS_SCOPE_ID_ATTRIBUTE,
         HINT_SIZE_ATTRIBUTE,
         HINT_ANCHOR_ID_ATTRIBUTE,
+        HINT_HOVER_SIDE_ATTRIBUTE,
       ],
     });
     for (const entry of pool) observeWithAncestors(entry.element);

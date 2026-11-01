@@ -271,6 +271,13 @@ describe("keyboard hint placement", () => {
       ),
       { placement: "below", left: 58, top: 72 },
     ],
+    [
+      "sits left of a hover-only icon that asks for the left side",
+      placed(
+        `<div data-keyboard-hint-reveal="" class="opacity-0"><button id="one" data-keyboard-hint-hover-side="left" style="${PLACEMENT_ROW}">${ICON}</button></div>`,
+      ),
+      { placement: "left", left: 46, top: 60 },
+    ],
   ] as const)("%s", (_case, markup, expected) => {
     using _fixture = setupFixture(markup);
     using controller = setupController();

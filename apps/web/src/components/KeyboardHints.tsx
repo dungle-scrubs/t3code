@@ -168,6 +168,7 @@ function HintOverlay({
                 "absolute inline-flex h-[16px] items-center gap-px overflow-hidden rounded-sm border border-foreground bg-foreground bg-no-repeat font-mono font-semibold text-2xs leading-none text-background shadow-sm",
                 target.placement === "center" && "-translate-1/2",
                 target.placement === "text-start" && "-translate-y-1/2",
+                target.placement === "left" && "-translate-x-full -translate-y-1/2",
                 (target.placement === "below" || target.placement === "above") &&
                   "-translate-x-1/2",
               )}
