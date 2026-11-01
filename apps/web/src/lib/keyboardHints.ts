@@ -58,6 +58,8 @@ export interface KeyboardHintsState {
   readonly active: boolean;
   readonly prefix: string;
   readonly targets: readonly KeyboardHintTarget[];
+  /** Distance from the viewport bottom that keeps the command guide above the composer. */
+  readonly commandGuideBottom?: number;
 }
 
 export interface KeyboardHintsController {
@@ -116,6 +118,12 @@ const HINT_TERMINAL_SELECTOR = ".xterm, .xterm-helper-textarea, [data-thread-ter
 const HINT_OVERLAY_SELECTOR = "[data-keyboard-hints-overlay]";
 
 const HINT_CAPTURE_SELECTOR = "[data-keybinding-capture]";
+
+const HINT_COMPOSER_SELECTOR = "[data-workspace-area='composer']";
+
+const COMMAND_GUIDE_COMPOSER_GAP = 8;
+
+const COMMAND_GUIDE_MIN_BOTTOM = 16;
 
 const HINT_PLACEMENT_ATTRIBUTE = "data-keyboard-hint-placement";
 
@@ -388,6 +396,17 @@ function hasDuplicateAncestor(element: HTMLElement, candidates: Set<HTMLElement>
   return false;
 }
 
+function findVisibleComposer(doc: Document): HTMLElement | undefined {
+  return Array.from(doc.querySelectorAll<HTMLElement>(HINT_COMPOSER_SELECTOR)).find(isVisibleScope);
+}
+
+function commandGuideBottom(composer: HTMLElement, doc: Document): number | undefined {
+  const viewportHeight = doc.defaultView?.innerHeight ?? 0;
+  if (viewportHeight <= 0) return undefined;
+  const top = composer.getBoundingClientRect().top;
+  return Math.max(COMMAND_GUIDE_MIN_BOTTOM, viewportHeight - top + COMMAND_GUIDE_COMPOSER_GAP);
+}
+
 /** The visible, reachable targets the hints can label, in document order. */
 export function collectHintTargets(doc: Document): HTMLElement[] {
   const scope = resolveHintScope(doc);
@@ -575,6 +594,14 @@ export function createKeyboardHintsController(
     observe(elements);
   }
 
+  /** Measures the command guide offset and follows the composer it sits above. */
+  function trackCommandGuideBottom(): number | undefined {
+    const composer = findVisibleComposer(doc);
+    if (!composer) return undefined;
+    observeWithAncestors(composer);
+    return commandGuideBottom(composer, doc);
+  }
+
   function stopWatching() {
     observer?.disconnect();
     observer = undefined;
@@ -730,8 +757,14 @@ export function createKeyboardHintsController(
       const anchor = anchorId ? doc.getElementById(anchorId) : null;
       if (anchor) observeWithAncestors(anchor);
     }
-    if (sameHintTargets(state.targets, next)) return;
-    state = { ...state, targets: next };
+    const guideBottom = trackCommandGuideBottom();
+    if (sameHintTargets(state.targets, next) && guideBottom === state.commandGuideBottom) return;
+    state = {
+      active: true,
+      prefix: state.prefix,
+      targets: next,
+      ...(guideBottom === undefined ? {} : { commandGuideBottom: guideBottom }),
+    };
     emit();
   }
 
@@ -794,10 +827,12 @@ export function createKeyboardHintsController(
       return label === undefined ? [] : [{ element, label }];
     });
     scope = resolveHintScope(doc);
+    const guideBottom = trackCommandGuideBottom();
     state = {
       active: true,
       prefix: "",
       targets: pool.map((entry) => hintTarget(entry.label, entry.element)),
+      ...(guideBottom === undefined ? {} : { commandGuideBottom: guideBottom }),
     };
     startWatching();
     emit();

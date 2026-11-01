@@ -112,15 +112,18 @@ export function KeyboardHints() {
 }
 
 function HintCommandGuide({
+  bottom,
   detail,
   pullRequestsSupported,
 }: {
+  readonly bottom: number | undefined;
   readonly detail: string;
   readonly pullRequestsSupported: boolean;
 }) {
   return (
     <aside
       aria-label="Hint commands"
+      style={bottom === undefined ? undefined : { bottom }}
       className="fixed right-4 bottom-4 flex w-max max-w-64 flex-col gap-2 rounded-lg border border-border bg-popover px-2.5 py-2 text-popover-foreground text-xs shadow-md"
     >
       <div className="flex min-w-0 items-center gap-2">
@@ -197,7 +200,11 @@ function HintOverlay({
           ))}
       </div>
       {state.prefix === "" ? (
-        <HintCommandGuide detail={commandDetail} pullRequestsSupported={pullRequestsSupported} />
+        <HintCommandGuide
+          bottom={state.commandGuideBottom}
+          detail={commandDetail}
+          pullRequestsSupported={pullRequestsSupported}
+        />
       ) : null}
     </div>
   );

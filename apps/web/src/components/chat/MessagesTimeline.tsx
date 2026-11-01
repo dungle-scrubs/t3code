@@ -40,6 +40,7 @@ import {
   useLayoutEffect,
   useEffect,
   useEffectEvent,
+  useId,
   useRef,
   useState,
   type ReactNode,
@@ -1653,6 +1654,7 @@ function TurnFoldTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "turn-
   const { loading, error, toggle } = useDeferredWorkLoading(row, () =>
     ctx.onToggleTurnFold(row.runId),
   );
+  const labelId = useId();
 
   return (
     <div className="group/timeline-row border-b border-border/60 pb-2 pe-0.5 pt-1">
@@ -1663,10 +1665,10 @@ function TurnFoldTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "turn-
           data-scroll-anchor-ignore
           onClick={toggle}
           aria-busy={loading}
-          {...keyboardHintProps({ placement: "before", size: "compact" })}
+          {...keyboardHintProps({ placement: "text-start", size: "compact", anchorId: labelId })}
           className="flex cursor-pointer select-none items-center gap-1 rounded-md px-1 text-sm leading-relaxed text-muted-foreground tabular-nums transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
         >
-          <span>
+          <span id={labelId}>
             {row.label}
             {error ? ` · ${error}` : ""}
           </span>
