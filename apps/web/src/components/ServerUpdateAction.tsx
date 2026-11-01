@@ -84,6 +84,8 @@ export interface ServerUpdateTarget {
   readonly targetDatabaseMigration?: number;
   /** The host already runs its track's newest build and only saves the track. */
   readonly trackOnly?: boolean;
+  /** Pull this machine's fork checkout instead of installing a published release. */
+  readonly forkSync?: boolean;
 }
 
 type UpdateButtonProps = Pick<ComponentProps<typeof Button>, "variant" | "size" | "className"> & {

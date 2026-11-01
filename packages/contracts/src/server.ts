@@ -953,3 +953,22 @@ export class ServerSelfUpdateError extends Schema.TaggedError<ServerSelfUpdateEr
     return `Server update failed: ${this.reason}`;
   }
 }
+
+export const ForkCheckoutSyncResult = Schema.Struct({
+  before: TrimmedNonEmptyString,
+  after: TrimmedNonEmptyString,
+  built: Schema.Boolean,
+});
+export type ForkCheckoutSyncResult = typeof ForkCheckoutSyncResult.Type;
+
+export class ForkCheckoutSyncError extends Schema.TaggedError<ForkCheckoutSyncError>()(
+  "ForkCheckoutSyncError",
+  {
+    reason: TrimmedNonEmptyString,
+    cause: Schema.optional(Schema.Defect()),
+  },
+) {
+  override get message(): string {
+    return `Checkout sync failed: ${this.reason}`;
+  }
+}

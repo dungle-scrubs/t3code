@@ -323,6 +323,8 @@ import {
   ServerRemoveKeybindingResult,
   ServerProviderUpdatedPayload,
   ServerSelfUpdateError,
+  ForkCheckoutSyncError,
+  ForkCheckoutSyncResult,
   ServerNpmRelease,
   ServerNpmReleaseError,
   ServerNpmReleaseInput,
@@ -500,6 +502,7 @@ export const WS_METHODS = {
   serverRefreshProviders: "server.refreshProviders",
   serverUpdateProvider: "server.updateProvider",
   serverUpdateServer: "server.updateServer",
+  serverSyncForkCheckout: "server.syncForkCheckout",
   serverUpdateServerWithProgress: "server.updateServerWithProgress",
   serverCommitDesktopUpdate: "server.commitDesktopUpdate",
   serverUpsertKeybinding: "server.upsertKeybinding",
@@ -761,6 +764,12 @@ const WsServerUpdateServerRpc = Rpc.make(WS_METHODS.serverUpdateServer, {
   payload: ServerSelfUpdateInput,
   success: ServerSelfUpdateResult,
   error: Schema.Union([ServerSelfUpdateError, EnvironmentAuthorizationError]),
+});
+
+const WsServerSyncForkCheckoutRpc = Rpc.make(WS_METHODS.serverSyncForkCheckout, {
+  payload: Schema.Struct({}),
+  success: ForkCheckoutSyncResult,
+  error: Schema.Union([ForkCheckoutSyncError, EnvironmentAuthorizationError]),
 });
 
 const WsServerUpdateServerWithProgressRpc = Rpc.make(WS_METHODS.serverUpdateServerWithProgress, {
@@ -1990,6 +1999,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsProviderInstallSubscribeRpc,
   WsProviderInstallRemoveRpc,
   WsServerUpdateServerRpc,
+  WsServerSyncForkCheckoutRpc,
   WsServerGetNpmReleaseRpc,
   WsServerUpdateServerWithProgressRpc,
   WsServerCommitDesktopUpdateRpc,

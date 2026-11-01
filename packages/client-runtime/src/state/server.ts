@@ -1407,6 +1407,12 @@ export function createServerEnvironmentAtoms<R, E>(
       concurrency: configConcurrency,
     }),
     updateServer,
+    syncForkCheckout: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:sync-fork-checkout",
+      tag: WS_METHODS.serverSyncForkCheckout,
+      scheduler: configScheduler,
+      concurrency: configConcurrency,
+    }),
     upsertKeybinding: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:upsert-keybinding",
       tag: WS_METHODS.serverUpsertKeybinding,

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   collectChannelSwitchTargets,
+  collectForkSyncTargets,
   collectRestartingMachines,
   localSwitchBlockReason,
   collectServerUpdateTargets,
@@ -82,6 +83,47 @@ describe("collectServerUpdateTargets", () => {
       ["no-scope", "no permission"],
       ["busy", "already updating"],
       ["manual", "needs a manual update"],
+    ]);
+  });
+});
+
+describe("collectForkSyncTargets", () => {
+  it("includes the hosted checkout and skips machines that are not the fork", () => {
+    const withFork = (
+      id: string,
+      overrides: Partial<UpdateEverythingMachine> = {},
+    ): UpdateEverythingMachine => {
+      const base = machine(id, "0.0.40", "desktop-managed", overrides);
+      return {
+        ...base,
+        serverConfig:
+          base.serverConfig === null
+            ? null
+            : {
+                ...base.serverConfig,
+                environment: {
+                  ...base.serverConfig.environment,
+                  capabilities: {
+                    ...base.serverConfig.environment.capabilities,
+                    forkCheckoutSync: true,
+                  },
+                },
+              },
+      };
+    };
+
+    const { targets, skipped } = collectForkSyncTargets([
+      withFork("this-app", { hostedByThisApp: true }),
+      machine("published", "0.0.40", "boot-service"),
+      withFork("offline", { connected: false }),
+    ]);
+
+    expect(targets.map((target) => [target.serverLabel, target.forkSync])).toEqual([
+      ["this-app", true],
+    ]);
+    expect(skipped.map((entry) => [entry.label, entry.reason])).toEqual([
+      ["published", "not a fork checkout"],
+      ["offline", "not connected"],
     ]);
   });
 });

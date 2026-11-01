@@ -348,17 +348,21 @@ function SidebarUpdateControl() {
     setIsConfirmingEverything(false);
     setIsActionPending(true);
     const result = await settlePromise(() =>
-      everything.run({
-        ...(bridge && action === "download"
-          ? {
-              downloadLocal: (reportError) =>
-                downloadLocalUpdate(bridge, { notifyDownloaded: false, reportError }),
-            }
-          : {}),
-        ...(bridge && action !== "none"
-          ? { installLocal: (reportError) => installLocalUpdate(bridge, reportError) }
-          : {}),
-      }),
+      everything.run(
+        everything.forkSync
+          ? {}
+          : {
+              ...(bridge && action === "download"
+                ? {
+                    downloadLocal: (reportError) =>
+                      downloadLocalUpdate(bridge, { notifyDownloaded: false, reportError }),
+                  }
+                : {}),
+              ...(bridge && action !== "none"
+                ? { installLocal: (reportError) => installLocalUpdate(bridge, reportError) }
+                : {}),
+            },
+      ),
     );
     if (result._tag === "Failure") {
       const error = squashAtomCommandFailure(result);
@@ -401,6 +405,9 @@ function SidebarUpdateControl() {
       providerCount={everything.providerCount}
       rows={everything.rows}
       restarts={everything.restarts}
+      {...(everything.dialogTitle === undefined ? {} : { title: everything.dialogTitle })}
+      {...(everything.confirmLabel === undefined ? {} : { confirmLabel: everything.confirmLabel })}
+      {...(everything.notes === undefined ? {} : { notes: everything.notes })}
       onConfirm={() => void runEverything()}
     />
   );

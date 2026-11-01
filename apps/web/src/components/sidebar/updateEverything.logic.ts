@@ -122,6 +122,36 @@ export function collectServerUpdateTargets(
   return { targets, skipped };
 }
 
+/** Every connected fork checkout, including the one this app hosts. */
+export function collectForkSyncTargets(machines: ReadonlyArray<UpdateEverythingMachine>): {
+  readonly targets: ServerUpdateTarget[];
+  readonly skipped: SkippedMachine[];
+} {
+  const targets: ServerUpdateTarget[] = [];
+  const skipped: SkippedMachine[] = [];
+  for (const machine of machines) {
+    const skip = (reason: string) =>
+      skipped.push({ environmentId: machine.environmentId, label: machine.label, reason });
+    const unavailable = unavailableReason(machine);
+    if (machine.serverConfig === null || unavailable !== null) {
+      skip(unavailable ?? "not connected");
+      continue;
+    }
+    if (machine.serverConfig.environment.capabilities.forkCheckoutSync !== true) {
+      skip("not a fork checkout");
+      continue;
+    }
+    targets.push({
+      environmentId: machine.environmentId,
+      serverLabel: machine.label,
+      selfUpdate: null,
+      targetVersion: "fork",
+      forkSync: true,
+    });
+  }
+  return { targets, skipped };
+}
+
 function unavailableReason(machine: UpdateEverythingMachine): string | null {
   if (machine.serverConfig === null || !machine.connected) return "not connected";
   if (!machine.canMaintain) return "no permission";
@@ -481,6 +511,7 @@ export interface UpdateEverythingResult {
   readonly updatedProviders: number;
   readonly failures: ReadonlyArray<string>;
   readonly restarting: ReadonlyArray<string>;
+  readonly checkoutSync?: boolean;
 }
 
 export function collectUpdateEverythingResult(input: {
@@ -494,12 +525,14 @@ export function collectUpdateEverythingResult(input: {
     | { readonly status: "interrupted" | "updated" }
     | { readonly status: "failed"; readonly line: string }
   >;
+  readonly checkoutSync?: boolean;
 }): UpdateEverythingResult {
   return {
     localVersion: input.localVersion,
     updatedServers: input.servers.filter(({ outcome }) => outcome.status === "updated").length,
     updatedProviders: input.providers.filter((outcome) => outcome.status === "updated").length,
     restarting: [],
+    ...(input.checkoutSync ? { checkoutSync: true } : {}),
     failures: [
       ...input.localFailures.map((failure) => `This app: ${failure}`),
       ...input.servers.flatMap(({ label, outcome }) =>
@@ -520,7 +553,7 @@ export function getUpdateEverythingToastView(
 } | null {
   const parts = [
     result.localVersion !== null && result.localVersion === appVersion ? "this app" : null,
-    countLabel(result.updatedServers, "server"),
+    countLabel(result.updatedServers, result.checkoutSync ? "checkout" : "server"),
     countLabel(result.updatedProviders, "provider"),
   ].filter((part) => part !== null);
   const restarting =
@@ -529,17 +562,29 @@ export function getUpdateEverythingToastView(
       : [
           `${joinList(result.restarting)} ${result.restarting.length === 1 ? "is" : "are"} still restarting.`,
         ];
+  const verb = result.checkoutSync ? "Synchronized" : "Updated";
+  const relaunch =
+    result.checkoutSync && result.updatedServers > 0
+      ? ["Quit T3 Code and run vp run start:desktop on each machine that built."]
+      : [];
   if (result.failures.length === 0) {
     if (parts.length === 0) return null;
     return {
       type: "success",
-      title: `Updated ${joinList(parts)}`,
-      ...(restarting.length === 0 ? {} : { description: restarting.join("\n") }),
+      title: `${verb} ${joinList(parts)}`,
+      ...(restarting.length === 0 && relaunch.length === 0
+        ? {}
+        : { description: [...relaunch, ...restarting].join("\n") }),
     };
   }
   return {
     type: "error",
-    title: parts.length === 0 ? "Update failed" : `Updated ${joinList(parts)}`,
+    title:
+      parts.length === 0
+        ? result.checkoutSync
+          ? "Sync failed"
+          : "Update failed"
+        : `${verb} ${joinList(parts)}`,
     description: [...result.failures, ...restarting].join("\n"),
   };
 }
@@ -560,12 +605,13 @@ export interface UpdateEverythingPlan {
     readonly providers: ReadonlyArray<string>;
   }>;
   readonly skipped: ReadonlyArray<SkippedMachine>;
+  readonly forkSync?: boolean;
 }
 
 export interface UpdateEverythingRow {
   readonly environmentId: EnvironmentId | null;
   readonly label: string;
-  readonly app: "this-app" | "server" | "desktop-app" | null;
+  readonly app: "this-app" | "server" | "desktop-app" | "checkout" | null;
   readonly skipped: string | null;
   readonly providers: ReadonlyArray<string>;
 }
@@ -590,10 +636,10 @@ export function describeUpdateEverything(plan: UpdateEverythingPlan): {
     (count, machine) => count + machine.providers.length,
     0,
   );
-  const summary = `Update ${joinList(
+  const summary = `${plan.forkSync ? "Synchronize" : "Update"} ${joinList(
     [
       plan.localVersion ? "this app" : null,
-      countLabel(plan.servers.length, "server"),
+      countLabel(plan.servers.length, plan.forkSync ? "checkout" : "server"),
       countLabel(providerCount, "provider"),
     ].filter((part) => part !== null),
   )}`;
@@ -621,7 +667,11 @@ export function describeUpdateEverything(plan: UpdateEverythingPlan): {
   }
   for (const server of plan.servers) {
     update(server.environmentId, server.serverLabel, {
-      app: server.selfUpdate === "desktop-managed" ? "desktop-app" : "server",
+      app: plan.forkSync
+        ? "checkout"
+        : server.selfUpdate === "desktop-managed"
+          ? "desktop-app"
+          : "server",
     });
   }
   for (const machine of plan.providerMachines) {
@@ -633,10 +683,11 @@ export function describeUpdateEverything(plan: UpdateEverythingPlan): {
 
   return {
     summary,
-    version:
-      plan.localVersion ??
-      plan.servers.find((server) => server.selfUpdate !== "desktop-managed")?.targetVersion ??
-      null,
+    version: plan.forkSync
+      ? null
+      : (plan.localVersion ??
+        plan.servers.find((server) => server.selfUpdate !== "desktop-managed")?.targetVersion ??
+        null),
     providerCount,
     rows: Array.from(rows.values()),
   };
