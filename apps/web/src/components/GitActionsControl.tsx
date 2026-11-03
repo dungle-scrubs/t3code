@@ -21,7 +21,7 @@ import type {
 } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import * as Option from "effect/Option";
-import { useEffect, useEffectEvent, useId, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { useDeadlinePassed } from "../hooks/useDeadline";
 import { useNowSecond } from "../hooks/useNowSecond";
 import { flushSync } from "react-dom";
@@ -934,7 +934,6 @@ export default function GitActionsControl({
   onOpenChanges,
 }: GitActionsControlProps) {
   const panelAnchorRef = useRef<HTMLDivElement | null>(null);
-  const gitActionOptionsCaretId = useId();
   const updateThreadMetadata = useAtomCommand(
     threadEnvironment.updateMetadata,
     "thread branch metadata update",
@@ -1606,17 +1605,12 @@ export default function GitActionsControl({
                       variant="ghost"
                       part="secondary"
                       panel
-                      {...keyboardHintProps({
-                        placement: "before",
-                        size: "compact",
-                        anchorId: gitActionOptionsCaretId,
-                      })}
+                      {...keyboardHintProps({ size: "compact" })}
                     />
                   }
                   disabled={isGitActionRunning}
                 >
                   <ChevronDownIcon
-                    id={gitActionOptionsCaretId}
                     aria-hidden="true"
                     className={THREAD_DETAILS_PANEL_CHEVRON_CLASS}
                   />

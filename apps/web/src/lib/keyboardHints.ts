@@ -5,6 +5,8 @@
  * while the user types, and activates the one target the typed label names.
  */
 
+import { observeResize } from "./observeResize";
+
 /** Home-row-first alphabet: the first labels are the easiest keys to reach. */
 export const KEYBOARD_HINT_ALPHABET = "asdfghjklqwertyuiopzxcvbnm";
 
@@ -26,15 +28,11 @@ const KEYBOARD_HINT_INITIAL_ALPHABET = KEYBOARD_HINT_ALPHABET.replaceAll(
 export const MAX_KEYBOARD_HINT_TARGETS =
   KEYBOARD_HINT_INITIAL_ALPHABET.length * KEYBOARD_HINT_ALPHABET.length;
 
-export type KeyboardHintPlacement =
-  | "inset"
-  | "inline"
-  | "above"
-  | "below"
-  | "before"
-  | "after"
-  | "center"
-  | "text-start";
+/**
+ * Where a badge sits, derived from the rendered target: over its leading icon, at the start of
+ * its text, centred on a target with no content, or beside a control that shows only on hover.
+ */
+export type KeyboardHintPlacement = "center" | "text-start" | "below" | "above" | "left";
 export type KeyboardHintSize = "default" | "compact";
 
 export interface KeyboardHintTarget {
@@ -46,10 +44,17 @@ export interface KeyboardHintTarget {
   readonly size: KeyboardHintSize;
 }
 
+/** A labelled target of the current invocation. */
+interface KeyboardHintPoolEntry {
+  readonly element: HTMLElement;
+  readonly label: string;
+}
+
 export interface KeyboardHintsState {
   readonly active: boolean;
   readonly prefix: string;
   readonly targets: readonly KeyboardHintTarget[];
+  readonly commandGuidePosition?: { readonly bottom: number; readonly right: number };
 }
 
 export interface KeyboardHintsController {
@@ -109,7 +114,12 @@ const HINT_OVERLAY_SELECTOR = "[data-keyboard-hints-overlay]";
 
 const HINT_CAPTURE_SELECTOR = "[data-keybinding-capture]";
 
-const HINT_PLACEMENT_ATTRIBUTE = "data-keyboard-hint-placement";
+// The form, not its workspace region: on a new thread that region fills the viewport.
+const HINT_COMPOSER_SELECTOR = "[data-chat-composer-form]";
+
+const COMMAND_GUIDE_COMPOSER_GAP = 8;
+
+const COMMAND_GUIDE_VIEWPORT_MARGIN = 16;
 
 const HINT_SIZE_ATTRIBUTE = "data-keyboard-hint-size";
 
@@ -117,105 +127,224 @@ const HINT_SKIP_ATTRIBUTE = "data-keyboard-hint-skip";
 
 const HINT_ANCHOR_ID_ATTRIBUTE = "data-keyboard-hint-anchor-id";
 
-const HINT_FOCUS_SCOPE_ID_ATTRIBUTE = "data-keyboard-hint-focus-scope-id";
+const HINT_HOVER_SIDE_ATTRIBUTE = "data-keyboard-hint-hover-side";
 
-const HINT_PLACEMENTS: ReadonlySet<string> = new Set<KeyboardHintPlacement>([
-  "inset",
-  "inline",
-  "above",
-  "below",
-  "before",
-  "after",
-  "center",
-  "text-start",
-]);
+const HINT_FOCUS_SCOPE_ID_ATTRIBUTE = "data-keyboard-hint-focus-scope-id";
 
 /** Set on the document element while hints show; index.css reveals the opted-in hover rows. */
 const HINT_ACTIVE_ATTRIBUTE = "data-keyboard-hints-active";
 
+/** Hover-only controls: inside a revealed row, or a file-tab close whose X shows on hover. */
+const HINT_HOVER_ONLY_SELECTOR = "[data-keyboard-hint-reveal]";
+
+const HINT_HOVER_ONLY_CONTENT_SELECTOR = "[data-keyboard-hint-close-icon]";
+
+const HINT_ICON_SELECTOR = "svg, img, [role='img']";
+
+/** Matches the badge's h-[16px] in KeyboardHints.tsx. */
+const HINT_BADGE_HEIGHT = 16;
+
+const HINT_BADGE_GAP = 4;
+
+const HINT_VIEWPORT_MARGIN = 4;
+
 const TRIGGER_CODE = "Space";
 
-/** Props a control spreads to change where its hint sits or how large it is, or to opt out of hints. */
+/** Props a control spreads to change how large its hint is, or to opt out of hints. */
 export function keyboardHintProps(options: {
-  readonly placement?: KeyboardHintPlacement;
   readonly size?: KeyboardHintSize;
   readonly skip?: boolean;
-  /** Id of the hint's positioning element; the control stays the activation target. */
+  /** Id of an element outside the control whose content the badge labels; the control stays the activation target. */
   readonly anchorId?: string;
   /** Drop this candidate while the element with this id contains document focus. */
   readonly focusScopeId?: string;
+  /** Dense hover columns whose badge would cover the next row sit left of the control instead. */
+  readonly hoverSide?: "left";
 }): Partial<
   Record<
-    | typeof HINT_PLACEMENT_ATTRIBUTE
     | typeof HINT_SIZE_ATTRIBUTE
     | typeof HINT_SKIP_ATTRIBUTE
     | typeof HINT_ANCHOR_ID_ATTRIBUTE
-    | typeof HINT_FOCUS_SCOPE_ID_ATTRIBUTE,
+    | typeof HINT_FOCUS_SCOPE_ID_ATTRIBUTE
+    | typeof HINT_HOVER_SIDE_ATTRIBUTE,
     string
   >
 > {
   return {
-    ...(options.placement ? { [HINT_PLACEMENT_ATTRIBUTE]: options.placement } : {}),
     ...(options.size ? { [HINT_SIZE_ATTRIBUTE]: options.size } : {}),
     ...(options.skip ? { [HINT_SKIP_ATTRIBUTE]: "" } : {}),
     ...(options.anchorId ? { [HINT_ANCHOR_ID_ATTRIBUTE]: options.anchorId } : {}),
     ...(options.focusScopeId ? { [HINT_FOCUS_SCOPE_ID_ATTRIBUTE]: options.focusScopeId } : {}),
+    ...(options.hoverSide ? { [HINT_HOVER_SIDE_ATTRIBUTE]: options.hoverSide } : {}),
   };
-}
-
-function isHintPlacement(value: string | null): value is KeyboardHintPlacement {
-  return value !== null && HINT_PLACEMENTS.has(value);
-}
-
-function hintPlacement(element: HTMLElement): KeyboardHintPlacement {
-  const placement = element.getAttribute(HINT_PLACEMENT_ATTRIBUTE);
-  return isHintPlacement(placement) ? placement : "inset";
 }
 
 function hintSize(element: HTMLElement): KeyboardHintSize {
   return element.getAttribute(HINT_SIZE_ATTRIBUTE) === "compact" ? "compact" : "default";
 }
 
-function hintRect(element: HTMLElement): DOMRect {
-  const anchorId = element.getAttribute(HINT_ANCHOR_ID_ATTRIBUTE);
-  const anchorRect = anchorId
-    ? element.ownerDocument.getElementById(anchorId)?.getBoundingClientRect()
-    : undefined;
-  return anchorRect && anchorRect.width > 0 && anchorRect.height > 0
-    ? anchorRect
-    : element.getBoundingClientRect();
+/** What a badge labels: the first rendered icon or text line, else the whole box. */
+interface HintAnchor {
+  readonly kind: "icon" | "text" | "empty";
+  /** The element whose size changes move the badge. */
+  readonly element: Element;
+  readonly rect: DOMRect;
 }
 
+function hasArea(rect: DOMRect): boolean {
+  return rect.width > 0 && rect.height > 0;
+}
+
+function textLineAnchor(text: Text): HintAnchor | undefined {
+  const start = text.data.search(/\S/);
+  const parent = text.parentElement;
+  if (start < 0 || !parent) return undefined;
+  const range = text.ownerDocument.createRange();
+  range.setStart(text, start);
+  range.setEnd(text, text.data.length);
+  const rect = Array.from(range.getClientRects()).find(hasArea);
+  return rect ? { kind: "text", element: parent, rect } : undefined;
+}
+
+/** A field draws its value or placeholder inside its padding, with no text node to measure. */
+function fieldTextAnchor(field: HTMLElement): HintAnchor {
+  const rect = field.getBoundingClientRect();
+  const style = field.ownerDocument.defaultView?.getComputedStyle(field);
+  const px = (value: string | undefined) => Number.parseFloat(value ?? "") || 0;
+  const left = rect.left + px(style?.borderLeftWidth) + px(style?.paddingLeft);
+  const right = rect.right - px(style?.borderRightWidth) - px(style?.paddingRight);
+  const top = rect.top + px(style?.borderTopWidth) + px(style?.paddingTop);
+  const bottom = rect.bottom - px(style?.borderBottomWidth) - px(style?.paddingBottom);
+  const lineHeight = px(style?.lineHeight) || px(style?.fontSize) * 1.2;
+  // A single-line control centres its line; a multi-line one starts at the top.
+  const lineTop =
+    field.tagName === "INPUT" || field.tagName === "SELECT" ? (top + bottom - lineHeight) / 2 : top;
+  return {
+    kind: "text",
+    element: field,
+    rect: new DOMRect(left, lineTop, Math.max(0, right - left), lineHeight),
+  };
+}
+
+function isScreenReaderOnly(style: CSSStyleDeclaration, rect: DOMRect): boolean {
+  return style.position === "absolute" && rect.width <= 1 && rect.height <= 1;
+}
+
+/**
+ * The first icon or text line rendered inside `element`, in document order, so an icon before a
+ * label wins and a label before a trailing caret wins. Nested controls own their content.
+ */
+function firstRenderedContent(element: Element): HintAnchor | undefined {
+  const view = element.ownerDocument.defaultView;
+  for (const node of Array.from(element.childNodes)) {
+    if (node instanceof Text) {
+      const text = textLineAnchor(node);
+      if (text) return text;
+      continue;
+    }
+    if (!(node instanceof Element)) continue;
+    if (node.matches(HINT_ACTION_SELECTOR)) continue;
+    if (node instanceof HTMLElement && node.tabIndex >= 0) continue;
+    const style = view?.getComputedStyle(node);
+    if (style) {
+      if (style.display === "none" || style.visibility === "hidden") continue;
+      if (Number(style.opacity) === 0) continue;
+    }
+    const rect = node.getBoundingClientRect();
+    if (style && isScreenReaderOnly(style, rect)) continue;
+    if (node.matches(HINT_ICON_SELECTOR)) {
+      if (hasArea(rect)) return { kind: "icon", element: node, rect };
+      continue;
+    }
+    const nested = firstRenderedContent(node);
+    if (nested) return nested;
+  }
+  return undefined;
+}
+
+function contentAnchor(element: Element): HintAnchor | undefined {
+  if (element instanceof HTMLInputElement) {
+    return isTextEntry(element) ? fieldTextAnchor(element) : undefined;
+  }
+  if (element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement) {
+    return fieldTextAnchor(element);
+  }
+  if (element.matches(HINT_ICON_SELECTOR)) {
+    const rect = element.getBoundingClientRect();
+    return hasArea(rect) ? { kind: "icon", element, rect } : undefined;
+  }
+  const content = firstRenderedContent(element);
+  if (content) return content;
+  return element instanceof HTMLElement && isTextEntry(element)
+    ? fieldTextAnchor(element)
+    : undefined;
+}
+
+/** An explicit anchor names where the content sits; the control is the fallback. */
+function resolveHintAnchor(element: HTMLElement): HintAnchor {
+  const anchorId = element.getAttribute(HINT_ANCHOR_ID_ATTRIBUTE);
+  const explicit = anchorId ? element.ownerDocument.getElementById(anchorId) : null;
+  if (explicit) {
+    const content = contentAnchor(explicit);
+    if (content) return content;
+    const rect = explicit.getBoundingClientRect();
+    if (hasArea(rect)) return { kind: "empty", element: explicit, rect };
+  }
+  return (
+    contentAnchor(element) ?? {
+      kind: "empty",
+      element,
+      rect: element.getBoundingClientRect(),
+    }
+  );
+}
+
+function isHoverOnly(element: HTMLElement): boolean {
+  return (
+    element.closest(HINT_HOVER_ONLY_SELECTOR) !== null ||
+    element.querySelector(HINT_HOVER_ONLY_CONTENT_SELECTOR) !== null
+  );
+}
+
+/**
+ * A badge covers the icon or text start the eye already rests on. A hover-only control stays
+ * readable, so its badge sits 4px below it, or above it when the viewport has no room below.
+ */
 function hintPosition(
-  rect: DOMRect,
-  placement: KeyboardHintPlacement,
-): { readonly left: number; readonly top: number } {
+  element: HTMLElement,
+  anchor: HintAnchor,
+): Pick<KeyboardHintTarget, "placement" | "left" | "top"> {
+  const rect = anchor.rect;
   const centerX = rect.left + rect.width / 2;
   const centerY = rect.top + rect.height / 2;
-  switch (placement) {
-    case "above":
-      return { left: centerX, top: rect.top - 4 };
-    case "below":
-      return { left: centerX, top: rect.bottom + 4 };
-    case "before":
-      return { left: rect.left - 4, top: centerY };
-    case "after":
-      return { left: rect.right + 4, top: centerY };
-    case "center":
-      return { left: centerX, top: centerY };
-    case "inset":
-      return { left: rect.left + 7, top: rect.top + 6 };
-    case "inline":
-      return { left: rect.left + 7, top: centerY };
-    case "text-start":
-      return { left: rect.left, top: centerY };
+  if (isHoverOnly(element)) {
+    if (element.getAttribute(HINT_HOVER_SIDE_ATTRIBUTE) === "left") {
+      return { placement: "left", left: rect.left - HINT_BADGE_GAP, top: centerY };
+    }
+    const viewportHeight = element.ownerDocument.defaultView?.innerHeight ?? 0;
+    const below = rect.bottom + HINT_BADGE_GAP;
+    if (viewportHeight <= 0 || below + HINT_BADGE_HEIGHT <= viewportHeight - HINT_VIEWPORT_MARGIN) {
+      return { placement: "below", left: centerX, top: below };
+    }
+    return {
+      placement: "above",
+      left: centerX,
+      top: rect.top - HINT_BADGE_GAP - HINT_BADGE_HEIGHT,
+    };
   }
+  if (anchor.kind === "text") return { placement: "text-start", left: rect.left, top: centerY };
+  return { placement: "center", left: centerX, top: centerY };
 }
 
-function hintTarget(label: string, element: HTMLElement): KeyboardHintTarget {
-  const placement = hintPlacement(element);
-  const { left, top } = hintPosition(hintRect(element), placement);
-  return { label, element, left, top, placement, size: hintSize(element) };
+function measureHint(
+  label: string,
+  element: HTMLElement,
+): { readonly target: KeyboardHintTarget; readonly anchor: Element } {
+  const anchor = resolveHintAnchor(element);
+  return {
+    target: { label, element, ...hintPosition(element, anchor), size: hintSize(element) },
+    anchor: anchor.element,
+  };
 }
 
 /**
@@ -380,6 +509,28 @@ function hasDuplicateAncestor(element: HTMLElement, candidates: Set<HTMLElement>
   return false;
 }
 
+function findVisibleComposer(doc: Document): HTMLElement | undefined {
+  return Array.from(doc.querySelectorAll<HTMLElement>(HINT_COMPOSER_SELECTOR)).find(isVisibleScope);
+}
+
+function commandGuidePosition(
+  composer: HTMLElement,
+  heading: HTMLElement | undefined,
+  doc: Document,
+): KeyboardHintsState["commandGuidePosition"] {
+  const view = doc.defaultView;
+  if (!view || view.innerHeight <= 0) return undefined;
+  const rect = composer.getBoundingClientRect();
+  const top = heading ? Math.min(rect.top, heading.getBoundingClientRect().top) : rect.top;
+  return {
+    bottom: Math.max(
+      COMMAND_GUIDE_VIEWPORT_MARGIN,
+      view.innerHeight - top + COMMAND_GUIDE_COMPOSER_GAP,
+    ),
+    right: Math.max(COMMAND_GUIDE_VIEWPORT_MARGIN, view.innerWidth - rect.right),
+  };
+}
+
 /** The visible, reachable targets the hints can label, in document order. */
 export function collectHintTargets(doc: Document): HTMLElement[] {
   const scope = resolveHintScope(doc);
@@ -486,9 +637,48 @@ function isOverlayMutation(record: MutationRecord): boolean {
   return false;
 }
 
+/** Whether the badge of a target still sits where it was. */
+function sameHintTargets(
+  previous: readonly KeyboardHintTarget[],
+  next: readonly KeyboardHintTarget[],
+): boolean {
+  if (previous.length !== next.length) return false;
+  for (let index = 0; index < next.length; index += 1) {
+    const before = previous[index]!;
+    const after = next[index]!;
+    if (before.element !== after.element) return false;
+    if (before.label !== after.label) return false;
+    if (before.placement !== after.placement || before.size !== after.size) return false;
+    if (before.left !== after.left) return false;
+    if (before.top !== after.top) return false;
+  }
+  return true;
+}
+
+/** The element a CSS transition animates. */
+function transitionElement(animation: CSSTransition): Element | null {
+  const target = (animation.effect as KeyframeEffect | null)?.target ?? null;
+  return target instanceof Element ? target : null;
+}
+
+/** Whether a CSS transition for the property still runs on the element. */
+function isTransitionRunning(element: Element, property: string): boolean {
+  if (typeof CSSTransition === "undefined") return false;
+  return element
+    .getAnimations()
+    .some(
+      (animation) =>
+        animation instanceof CSSTransition &&
+        animation.transitionProperty === property &&
+        animation.playState === "running",
+    );
+}
+
 /**
  * The hint mode: a trigger chord opens it, typed letters narrow the labels,
- * and the label that survives activates its target.
+ * and the label that survives activates its target. The labelled pool is fixed
+ * per invocation; later refreshes only decide which labels stay visible and
+ * where their badges sit.
  */
 export function createKeyboardHintsController(
   doc: Document,
@@ -498,20 +688,67 @@ export function createKeyboardHintsController(
   },
 ): KeyboardHintsController {
   let state: KeyboardHintsState = { active: false, prefix: "", targets: [] };
+  let pool: readonly KeyboardHintPoolEntry[] = [];
+  let scope: Element | undefined;
   let observer: MutationObserver | undefined;
+  const observed = new Set<Element>();
+  const resizeCleanups: (() => void)[] = [];
   let revealed = false;
   let disposed = false;
+  let pendingFrame: number | undefined;
+  const runningTransitions = new Map<Element, Set<string>>();
 
   const emit = () => onChange(state);
+
+  function observe(elements: readonly Element[]): void {
+    const fresh = elements.filter((element) => !observed.has(element));
+    if (fresh.length === 0) return;
+    for (const element of fresh) observed.add(element);
+    resizeCleanups.push(observeResize(fresh, onResizeObserved));
+  }
+
+  function observeWithAncestors(element: Element): void {
+    const elements: Element[] = [];
+    let current: Element | null = element;
+    while (current) {
+      elements.push(current);
+      if (current === doc.body || current === doc.documentElement) break;
+      current = current.parentElement;
+    }
+    observe(elements);
+  }
+
+  function trackCommandGuidePosition() {
+    const composer = findVisibleComposer(doc);
+    if (!composer) return undefined;
+    const heading = composer
+      .closest("[data-chat-composer-stack]")
+      ?.querySelector<HTMLElement>("[data-chat-composer-heading]");
+    const visibleHeading = heading && isVisibleScope(heading) ? heading : undefined;
+    observeWithAncestors(composer);
+    if (visibleHeading) observeWithAncestors(visibleHeading);
+    return commandGuidePosition(composer, visibleHeading, doc);
+  }
 
   function stopWatching() {
     observer?.disconnect();
     observer = undefined;
+    for (const stop of resizeCleanups) stop();
+    resizeCleanups.length = 0;
+    observed.clear();
+    runningTransitions.clear();
     const view = doc.defaultView;
+    if (pendingFrame !== undefined) {
+      view?.cancelAnimationFrame(pendingFrame);
+      pendingFrame = undefined;
+    }
     view?.removeEventListener("scroll", onScroll, true);
     view?.removeEventListener("resize", onResize);
     view?.removeEventListener("pointerdown", onPointerDown, true);
     view?.removeEventListener("blur", onBlur);
+    view?.removeEventListener("transitionrun", onTransitionRun, true);
+    view?.removeEventListener("transitionend", onTransitionSettled, true);
+    view?.removeEventListener("transitioncancel", onTransitionSettled, true);
   }
 
   function reveal() {
@@ -529,16 +766,18 @@ export function createKeyboardHintsController(
     if (!state.active) return;
     stopWatching();
     conceal();
+    pool = [];
+    scope = undefined;
     state = { active: false, prefix: "", targets: [] };
     emit();
   }
 
   function onScroll() {
-    dismiss();
+    scheduleRefresh();
   }
 
   function onResize() {
-    dismiss();
+    scheduleRefresh();
   }
 
   function onPointerDown() {
@@ -550,35 +789,131 @@ export function createKeyboardHintsController(
   }
 
   function onMutations(records: MutationRecord[]) {
-    for (const record of records) {
-      if (isOverlayMutation(record)) continue;
-      const target = record.target;
-      for (const hinted of state.targets) {
-        if (!hinted.element.isConnected) {
-          dismiss();
-          return;
-        }
-        if (
-          target instanceof Node &&
-          (hinted.element === target || hinted.element.contains(target))
-        ) {
-          dismiss();
-          return;
-        }
+    if (records.some((record) => !isOverlayMutation(record))) scheduleRefresh();
+  }
+
+  function onResizeObserved() {
+    scheduleRefresh();
+  }
+
+  function transitionProperty(event: Event): string {
+    return (event as TransitionEvent).propertyName ?? "";
+  }
+
+  function onTransitionRun(event: Event) {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    if (target.closest(HINT_OVERLAY_SELECTOR)) return;
+    const properties = runningTransitions.get(target) ?? new Set<string>();
+    properties.add(transitionProperty(event));
+    runningTransitions.set(target, properties);
+    scheduleRefresh();
+  }
+
+  function onTransitionSettled(event: Event) {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    if (target.closest(HINT_OVERLAY_SELECTOR)) return;
+    const properties = runningTransitions.get(target);
+    if (properties) {
+      properties.delete(transitionProperty(event));
+      if (properties.size === 0) runningTransitions.delete(target);
+    }
+    // The settled value is the last one the badge has to follow, even when the
+    // transition started before the mode opened.
+    scheduleRefresh();
+  }
+
+  /** Drops transitions that ended without an event or that lost their element. */
+  function pruneTransitions() {
+    for (const [element, properties] of runningTransitions) {
+      if (!element.isConnected) {
+        runningTransitions.delete(element);
+        continue;
       }
+      for (const property of properties) {
+        if (!isTransitionRunning(element, property)) properties.delete(property);
+      }
+      if (properties.size === 0) runningTransitions.delete(element);
     }
   }
 
-  function startWatching() {
+  /** Transitions that already run when the mode opens never fired transitionrun here. */
+  function seedRunningTransitions() {
+    if (typeof CSSTransition === "undefined") return;
+    for (const animation of doc.getAnimations()) {
+      if (!(animation instanceof CSSTransition)) continue;
+      if (animation.playState !== "running") continue;
+      const target = transitionElement(animation);
+      if (!target || target.closest(HINT_OVERLAY_SELECTOR)) continue;
+      const properties = runningTransitions.get(target) ?? new Set<string>();
+      properties.add(animation.transitionProperty);
+      runningTransitions.set(target, properties);
+    }
+  }
+
+  function scheduleRefresh() {
+    if (disposed || !state.active) return;
+    const view = doc.defaultView;
+    if (!view || pendingFrame !== undefined) return;
+    pendingFrame = view.requestAnimationFrame(() => {
+      pendingFrame = undefined;
+      pruneTransitions();
+      refresh();
+      // A running transition moves its target between notifications.
+      if (runningTransitions.size > 0) scheduleRefresh();
+    });
+  }
+
+  function refresh() {
+    if (disposed || !state.active) return;
+    if (scope && resolveHintScope(doc) !== scope) {
+      // A modal or popup took over: the labels under it must not answer.
+      dismiss();
+      return;
+    }
+    const next: KeyboardHintTarget[] = [];
+    for (const entry of pool) {
+      const element = entry.element;
+      if (!element.isConnected) continue;
+      if (!isHintCandidate(element)) continue;
+      if (isDisabled(element) || isHidden(element)) continue;
+      if (!isExposed(element, doc)) continue;
+      const { target, anchor } = measureHint(entry.label, element);
+      next.push(target);
+      observeWithAncestors(element);
+      observeWithAncestors(anchor);
+    }
+    const guidePosition = trackCommandGuidePosition();
+    if (
+      sameHintTargets(state.targets, next) &&
+      guidePosition?.bottom === state.commandGuidePosition?.bottom &&
+      guidePosition?.right === state.commandGuidePosition?.right
+    )
+      return;
+    state = {
+      active: true,
+      prefix: state.prefix,
+      targets: next,
+      ...(guidePosition === undefined ? {} : { commandGuidePosition: guidePosition }),
+    };
+    emit();
+  }
+
+  function startWatching(anchors: readonly Element[]) {
     const view = doc.defaultView;
     view?.addEventListener("scroll", onScroll, { capture: true, passive: true });
     view?.addEventListener("resize", onResize);
     view?.addEventListener("pointerdown", onPointerDown, true);
     view?.addEventListener("blur", onBlur);
+    view?.addEventListener("transitionrun", onTransitionRun, true);
+    view?.addEventListener("transitionend", onTransitionSettled, true);
+    view?.addEventListener("transitioncancel", onTransitionSettled, true);
     observer = new MutationObserver(onMutations);
     observer.observe(doc.body, {
       childList: true,
       subtree: true,
+      characterData: true,
       attributes: true,
       attributeFilter: [
         "class",
@@ -588,29 +923,47 @@ export function createKeyboardHintsController(
         "aria-hidden",
         "aria-disabled",
         "disabled",
+        "id",
+        "open",
         HINT_SKIP_ATTRIBUTE,
         HINT_FOCUS_SCOPE_ID_ATTRIBUTE,
+        HINT_SIZE_ATTRIBUTE,
+        HINT_ANCHOR_ID_ATTRIBUTE,
+        HINT_HOVER_SIDE_ATTRIBUTE,
       ],
     });
+    for (const entry of pool) observeWithAncestors(entry.element);
+    for (const anchor of anchors) observeWithAncestors(anchor);
+    seedRunningTransitions();
+    scheduleRefresh();
   }
 
   function open() {
     // Hover-only rows must be opaque before collection, which skips transparent controls.
     reveal();
-    let targets: KeyboardHintTarget[];
+    let elements: HTMLElement[];
+    let labels: string[];
     try {
-      const elements = collectHintTargets(doc);
-      const labels = assignHintLabels(elements.length);
-      targets = elements.flatMap((element, index) => {
-        const label = labels[index];
-        return label === undefined ? [] : [hintTarget(label, element)];
-      });
+      elements = collectHintTargets(doc);
+      labels = assignHintLabels(elements.length);
     } catch (error) {
       conceal();
       throw error;
     }
-    state = { active: true, prefix: "", targets };
-    startWatching();
+    pool = elements.flatMap((element, index) => {
+      const label = labels[index];
+      return label === undefined ? [] : [{ element, label }];
+    });
+    scope = resolveHintScope(doc);
+    const guidePosition = trackCommandGuidePosition();
+    const measured = pool.map((entry) => measureHint(entry.label, entry.element));
+    state = {
+      active: true,
+      prefix: "",
+      targets: measured.map(({ target }) => target),
+      ...(guidePosition === undefined ? {} : { commandGuidePosition: guidePosition }),
+    };
+    startWatching(measured.map(({ anchor }) => anchor));
     emit();
   }
 
@@ -721,6 +1074,8 @@ export function createKeyboardHintsController(
       disposed = true;
       stopWatching();
       conceal();
+      pool = [];
+      scope = undefined;
       state = { active: false, prefix: "", targets: [] };
     },
   };

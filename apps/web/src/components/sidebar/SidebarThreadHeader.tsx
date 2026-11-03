@@ -87,7 +87,7 @@ export function SidebarThreadHeader({
               : undefined
           }
           className="min-w-0 flex-1"
-          {...keyboardHintProps({ placement: "center", size: "compact", anchorId: searchIconId })}
+          {...keyboardHintProps({ size: "compact", anchorId: searchIconId })}
         />
         {isSearching ? (
           <Button
@@ -144,6 +144,7 @@ export function SidebarHeaderIconButton({
   tooltip = label,
   className,
   children,
+  id,
   ...rest
 }: {
   label: string;
@@ -154,24 +155,24 @@ export function SidebarHeaderIconButton({
   ComponentProps<typeof SidebarMenuButton>,
   "children" | "className" | "tooltip" | "isActive" | "aria-label"
 >) {
-  const iconId = useId();
+  const generatedId = useId();
+  const buttonId = id ?? generatedId;
   return (
     <Tooltip>
       <TooltipTrigger
+        id={buttonId}
         render={
           <SidebarMenuButton
             size="icon"
             type="button"
             aria-label={label}
-            {...keyboardHintProps({ placement: "below", size: "compact", anchorId: iconId })}
+            {...keyboardHintProps({ size: "compact" })}
             {...rest}
             className={cn("relative size-7 shrink-0", className)}
           />
         }
       >
-        <span id={iconId} className="inline-flex shrink-0">
-          {children}
-        </span>
+        {children}
         <span
           aria-hidden
           className="pointer-events-none absolute left-1/2 top-1/2 size-[max(100%,3rem)] -translate-1/2 pointer-fine:hidden"

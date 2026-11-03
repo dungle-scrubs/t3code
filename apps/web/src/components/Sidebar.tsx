@@ -71,7 +71,6 @@ import {
 } from "lucide-react";
 import {
   useEffect,
-  useId,
   useLayoutEffect,
   useReducer,
   useRef,
@@ -914,7 +913,6 @@ function readRouteThreadKey(router: AnyRouter): string | null {
 }
 
 export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReveal }) {
-  const settledMoreLabelId = useId();
   const {
     projects,
     serverConfigs,
@@ -3586,11 +3584,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                           tabIndex={-1}
                           data-sidebar-row="settled:more"
                           data-sidebar-parent="shelf:settled"
-                          {...keyboardHintProps({
-                            placement: "after",
-                            size: "compact",
-                            anchorId: settledMoreLabelId,
-                          })}
+                          {...keyboardHintProps({ size: "compact" })}
                           disabled={olderSettledShelf.loading}
                           onClick={() => {
                             olderSettledShelf.retry();
@@ -3600,13 +3594,11 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                         >
                           {/* Plus means "add", so revealing more uses a chevron. */}
                           <ChevronDownIcon aria-hidden className="size-4 shrink-0" />
-                          <span id={settledMoreLabelId}>
-                            {olderSettledShelf.loading
-                              ? "Loading"
-                              : olderSettledShelf.failed
-                                ? "Could not load older threads. Retry"
-                                : `Show ${Math.min(hiddenSettledCount, SETTLED_TAIL_PAGE_COUNT)} more`}
-                          </span>
+                          {olderSettledShelf.loading
+                            ? "Loading"
+                            : olderSettledShelf.failed
+                              ? "Could not load older threads. Retry"
+                              : `Show ${Math.min(hiddenSettledCount, SETTLED_TAIL_PAGE_COUNT)} more`}
                         </button>
                       </li>
                     ) : null}

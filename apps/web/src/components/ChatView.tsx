@@ -3513,7 +3513,10 @@ export default function ChatView(props: ChatViewProps) {
                   className="group/composer-stack pointer-events-auto relative z-10 mx-auto w-full max-w-(--chat-content-max-width)"
                 >
                   {isDraftHeroState ? (
-                    <div className="absolute inset-x-0 bottom-full">
+                    <div
+                      data-chat-composer-heading="true"
+                      className="absolute inset-x-0 bottom-full"
+                    >
                       <div
                         className="pb-4 group-has-data-[composer-shoulder-tab]/composer-stack:pb-0"
                         style={

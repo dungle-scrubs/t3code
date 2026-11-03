@@ -1,7 +1,7 @@
 import { shouldPreserveAssistantLineBreaks } from "@t3tools/shared/markdownPipeline";
 import { type RunId } from "@t3tools/contracts";
 import { canForkProjectedAssistantItem } from "@t3tools/client-runtime/state/thread-workflows";
-import { memo, use, useId, useState } from "react";
+import { memo, use, useState } from "react";
 import { type ChatMessage, type TurnDiffSummary } from "../../types";
 import ChatMarkdown from "../ChatMarkdown";
 import { GitForkIcon } from "lucide-react";
@@ -90,7 +90,6 @@ function AssistantForkButton({
 }) {
   const ctx = use(TimelineRowCtx);
   const [busy, setBusy] = useState(false);
-  const forkIconId = useId();
   const support = useV2ItemSupport({
     environmentId: ctx.activeThreadEnvironmentId,
     sourceThreadId: projectedItem.sourceThreadId,
@@ -121,11 +120,11 @@ function AssistantForkButton({
               );
             }}
             aria-label="Fork from this response"
-            {...keyboardHintProps({ placement: "below", size: "compact", anchorId: forkIconId })}
+            {...keyboardHintProps({ size: "compact" })}
           />
         }
       >
-        <GitForkIcon id={forkIconId} className={cn("size-3", busy && "animate-pulse")} />
+        <GitForkIcon className={cn("size-3", busy && "animate-pulse")} />
       </TooltipTrigger>
       <TooltipPopup side="top">Fork from this response</TooltipPopup>
     </Tooltip>
@@ -177,7 +176,7 @@ function AssistantMessageMeta({
           : "opacity-0 pointer-coarse:opacity-100 focus-within:opacity-100 group-hover/assistant:opacity-100",
         className,
       )}
-      data-keyboard-hint-reveal=""
+      data-keyboard-hint-reveal={alwaysVisible ? undefined : ""}
     >
       {projectedItem && projectedItem.item.status !== "completed" ? (
         <span className="rounded-full border border-border/70 px-1.5 py-0.5 font-mono text-3xs text-muted-foreground">

@@ -73,6 +73,7 @@ import {
 } from "@t3tools/shared/composerContextClipboard";
 import { chatMarkdownClipboardPayload } from "../../markdown-clipboard";
 import type { ChatMarkdownContextReference } from "../ChatMarkdown";
+import { keyboardHintProps } from "~/lib/keyboardHints";
 import { cn } from "~/lib/utils";
 import { markdownProseDirection } from "~/textDirection";
 import { useMediaQuery } from "~/hooks/useMediaQuery";
@@ -1071,7 +1072,6 @@ function RevertUserMessageButton({
 }) {
   const ctx = use(TimelineRowCtx);
   const activity = use(TimelineRowActivityCtx);
-
   return (
     <Tooltip>
       <TooltipTrigger
@@ -1083,6 +1083,7 @@ function RevertUserMessageButton({
             disabled={activity.isRevertingCheckpoint || activity.isWorking}
             onClick={() => ctx.onRevertToTurnCount(turnCount, messageId)}
             aria-label="Edit from here"
+            {...keyboardHintProps({ size: "compact" })}
           />
         }
       >

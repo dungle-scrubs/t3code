@@ -8,25 +8,15 @@ export function FileTagChipContent(props: {
   theme: "light" | "dark";
   environmentId?: EnvironmentId | null | undefined;
   cwd?: string | undefined;
-  iconId?: string | undefined;
 }) {
-  const icon = (
-    <WorkspaceEntryIcon
-      path={props.path}
-      environmentId={props.environmentId}
-      cwd={props.cwd}
-      theme={props.theme}
-    />
-  );
   return (
     <>
-      {props.iconId ? (
-        <span id={props.iconId} className="inline-flex shrink-0">
-          {icon}
-        </span>
-      ) : (
-        icon
-      )}
+      <WorkspaceEntryIcon
+        path={props.path}
+        environmentId={props.environmentId}
+        cwd={props.cwd}
+        theme={props.theme}
+      />
       <ContextChipLabel>{props.label}</ContextChipLabel>
     </>
   );

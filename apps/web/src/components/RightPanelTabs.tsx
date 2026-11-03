@@ -910,8 +910,6 @@ function RightPanelTab(
   );
   const title = sideChatShell?.title ?? props.title;
   const sideChatState = sideChatTabState(sideChatShell);
-  const titleId = useId();
-  const closeIconId = useId();
   const isFileTab = surface.kind === "file" || surface.kind === "files";
   const content = (
     <>
@@ -919,10 +917,7 @@ function RightPanelTab(
         label={`Close ${title}`}
         onClick={() => onClose(surface)}
         revealCloseOnHints={isFileTab}
-        closeIconId={isFileTab ? closeIconId : undefined}
-        keyboardHint={
-          isFileTab ? { placement: "below", size: "compact", anchorId: closeIconId } : undefined
-        }
+        keyboardHint={isFileTab ? { size: "compact" } : undefined}
       >
         <SurfaceIcon
           surface={surface}
@@ -994,16 +989,12 @@ function RightPanelTab(
                 onClick={() => onActivate(surface)}
                 {...(isFileTab
                   ? keyboardHintProps({
-                      placement: "below",
                       size: "compact",
-                      anchorId: titleId,
                       ...(props.active ? { focusScopeId: props.focusScopeId } : {}),
                     })
                   : {})}
               >
-                <span id={isFileTab ? titleId : undefined} className="truncate">
-                  {title}
-                </span>
+                <span className="truncate">{title}</span>
               </button>
             }
           />
@@ -1427,7 +1418,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
                       className="shrink-0"
                       size="icon-xs"
                       variant="ghost-muted"
-                      {...keyboardHintProps({ placement: "center", size: "compact" })}
+                      {...keyboardHintProps({ size: "compact" })}
                     />
                   }
                 >

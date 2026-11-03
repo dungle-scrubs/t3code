@@ -2,7 +2,6 @@ import { useAtomValue } from "@effect/atom-react";
 import * as Schema from "effect/Schema";
 import {
   useEffect,
-  useId,
   useState,
   useSyncExternalStore,
   type CSSProperties,
@@ -325,7 +324,6 @@ function SidebarControl() {
   const shortcutLabel = shortcutLabelForCommand(keybindings, "sidebar.toggle", {
     context: { usagePageOpen },
   });
-  const sidebarToggleIconId = useId();
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- window keydown listener that toggles the sidebar on its shortcut
   useEffect(() => {
@@ -387,18 +385,13 @@ function SidebarControl() {
         <TooltipTrigger
           render={
             <SidebarTrigger
-              iconId={sidebarToggleIconId}
               variant={isSidebarVisible && stageBackdropVariant ? "media-navigation" : "ghost"}
               className={cn(
                 "pointer-events-auto",
                 isSidebarVisible && stageBackdropVariant && "relative top-auto translate-y-0",
               )}
               aria-label="Toggle main sidebar"
-              {...keyboardHintProps({
-                placement: "below",
-                size: "compact",
-                anchorId: sidebarToggleIconId,
-              })}
+              {...keyboardHintProps({ size: "compact" })}
             />
           }
         />

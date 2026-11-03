@@ -1,5 +1,5 @@
 import { ArrowLeftIcon, ArrowRightIcon, ChartNoAxesColumnIcon, SettingsIcon } from "lucide-react";
-import { memo, useId, type ComponentType, type SVGProps } from "react";
+import { memo, type ComponentType, type SVGProps } from "react";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 
 import { useAtomValue } from "@effect/atom-react";
@@ -55,7 +55,6 @@ export const SidebarChromeHeader = memo(function SidebarChromeHeader({
     environmentIdentificationMode === "pill"
       ? resolveEnvironmentIdentificationPillLabel(stageLabel)
       : null;
-  const sidebarToggleIconId = useId();
 
   return (
     <div
@@ -67,15 +66,10 @@ export const SidebarChromeHeader = memo(function SidebarChromeHeader({
       {backdropVariant ? <SidebarStageBackdrop variant={backdropVariant} /> : null}
       <div className="relative top-[calc(var(--workspace-controls-top)-env(safe-area-inset-top))] z-10 ml-[calc(var(--workspace-controls-left)+1px-env(safe-area-inset-left))] flex shrink-0 items-center md:hidden">
         <SidebarTrigger
-          iconId={sidebarToggleIconId}
           variant={backdropVariant ? "media-navigation" : "ghost"}
           className="relative top-auto translate-y-0"
           aria-label="Toggle main sidebar"
-          {...keyboardHintProps({
-            placement: "below",
-            size: "compact",
-            anchorId: sidebarToggleIconId,
-          })}
+          {...keyboardHintProps({ size: "compact" })}
         />
       </div>
       <div className="relative z-10 flex h-8 min-w-0 flex-1 flex-wrap content-start items-center gap-x-2 overflow-hidden py-0.5">
@@ -142,7 +136,6 @@ function HistoryNavigationButton({
     direction === "back" ? "navigation.back" : "navigation.forward",
   );
   const Icon = direction === "back" ? ArrowLeftIcon : ArrowRightIcon;
-  const historyIconId = useId();
   return (
     <Tooltip>
       <TooltipTrigger
@@ -157,15 +150,11 @@ function HistoryNavigationButton({
             onClick={() => navigateHistory(direction)}
             size="icon-sm"
             variant={onBackdrop ? "media-navigation" : "ghost"}
-            {...keyboardHintProps({
-              placement: "below",
-              size: "compact",
-              anchorId: historyIconId,
-            })}
+            {...keyboardHintProps({ size: "compact" })}
           />
         }
       >
-        <Icon id={historyIconId} className="size-3.5" />
+        <Icon className="size-3.5" />
       </TooltipTrigger>
       <TooltipPopup side="bottom">
         {label}
@@ -176,7 +165,6 @@ function HistoryNavigationButton({
 }
 
 function SidebarBrand({ onBackdrop }: { onBackdrop: boolean }) {
-  const wordmarkId = useId();
   return (
     <Link
       aria-label="T3 Code home"
@@ -185,21 +173,17 @@ function SidebarBrand({ onBackdrop }: { onBackdrop: boolean }) {
         onBackdrop ? "text-white" : "text-foreground",
       )}
       to="/"
-      {...keyboardHintProps({ placement: "below", size: "compact", anchorId: wordmarkId })}
+      {...keyboardHintProps({ size: "compact" })}
     >
-      <SidebarBrandMark onBackdrop={onBackdrop} iconId={wordmarkId} />
+      <SidebarBrandMark onBackdrop={onBackdrop} />
     </Link>
   );
 }
 
-function SidebarBrandMark({ onBackdrop, iconId }: { onBackdrop: boolean; iconId?: string }) {
+function SidebarBrandMark({ onBackdrop }: { onBackdrop: boolean }) {
   return (
     <span className="inline-flex min-w-0 items-baseline gap-1 text-sm font-medium tracking-tight">
-      <T3Wordmark
-        aria-label="T3"
-        className="h-[1cap] w-auto shrink-0"
-        {...(iconId ? { id: iconId } : {})}
-      />
+      <T3Wordmark aria-label="T3" className="h-[1cap] w-auto shrink-0" />
       <span
         className={cn(
           "truncate [text-box:trim-both_cap_alphabetic] supports-[text-box:trim-both_cap_alphabetic]:py-1",
@@ -221,7 +205,6 @@ function SidebarUtilityItem({
   label: string;
   onClick: () => void;
 }) {
-  const iconId = useId();
   return (
     <SidebarMenuItem className="shrink-0">
       <Tooltip>
@@ -231,9 +214,9 @@ function SidebarUtilityItem({
               aria-label={label}
               onClick={onClick}
               size="icon"
-              {...keyboardHintProps({ placement: "above", size: "compact", anchorId: iconId })}
+              {...keyboardHintProps({ size: "compact" })}
             >
-              <Icon id={iconId} />
+              <Icon />
             </SidebarMenuButton>
           }
         />

@@ -1146,7 +1146,7 @@ const CHAT_MARKDOWN_COMPONENTS = {
           className={cn(props.className, pullRequestAutolink === "commit" && "font-mono")}
           data-markdown-copy={pullRequestCopy}
           data-markdown-image-link={!hasText || undefined}
-          {...(hasText ? keyboardHintProps({ placement: "inline", size: "compact" }) : {})}
+          {...(hasText ? keyboardHintProps({ size: "compact" }) : {})}
           href={href}
           target={isSameDocumentLink ? undefined : "_blank"}
           rel={isSameDocumentLink ? undefined : "noopener noreferrer"}

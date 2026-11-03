@@ -1663,7 +1663,7 @@ function TurnFoldTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "turn-
           data-scroll-anchor-ignore
           onClick={toggle}
           aria-busy={loading}
-          {...keyboardHintProps({ placement: "before", size: "compact" })}
+          {...keyboardHintProps({ size: "compact" })}
           className="flex cursor-pointer select-none items-center gap-1 rounded-md px-1 text-sm leading-relaxed text-muted-foreground tabular-nums transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
         >
           <span>

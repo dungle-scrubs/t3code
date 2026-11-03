@@ -1,6 +1,6 @@
 import { useRouter } from "@tanstack/react-router";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { createPortal, flushSync } from "react-dom";
 
 import { useOpenLink } from "../browser/useOpenLink";
 import { useActiveProjectTarget } from "../hooks/useActiveProjectTarget";
@@ -68,9 +68,16 @@ export function KeyboardHints() {
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- keeps the hint controller registered with the shortcut dispatcher for as long as the component is mounted
   useEffect(() => {
-    const controller = createKeyboardHintsController(document, setState, {
-      resolveCommand: (key) => resolveHintCommand(key),
-    });
+    const controller = createKeyboardHintsController(
+      document,
+      (next) => {
+        // The badge positions have to land before the paint, or they trail their target.
+        flushSync(() => setState(next));
+      },
+      {
+        resolveCommand: (key) => resolveHintCommand(key),
+      },
+    );
     controllerRef.current = controller;
     const unregister = registerCommands(
       {},
@@ -105,15 +112,18 @@ export function KeyboardHints() {
 }
 
 function HintCommandGuide({
+  position,
   detail,
   pullRequestsSupported,
 }: {
+  readonly position: KeyboardHintsState["commandGuidePosition"];
   readonly detail: string;
   readonly pullRequestsSupported: boolean;
 }) {
   return (
     <aside
       aria-label="Hint commands"
+      style={position}
       className="fixed right-4 bottom-4 flex w-max max-w-64 flex-col gap-2 rounded-lg border border-border bg-popover px-2.5 py-2 text-popover-foreground text-xs shadow-md"
     >
       <div className="flex min-w-0 items-center gap-2">
@@ -156,13 +166,11 @@ function HintOverlay({
               dir="ltr"
               className={cn(
                 "absolute inline-flex h-[16px] items-center gap-px overflow-hidden rounded-sm border border-foreground bg-foreground bg-no-repeat font-mono font-semibold text-2xs leading-none text-background shadow-sm",
-                target.placement === "inline" && "-translate-y-1/2",
-                target.placement === "text-start" && "-translate-y-1/2",
-                target.placement === "above" && "-translate-x-1/2 -translate-y-full",
-                target.placement === "below" && "-translate-x-1/2",
-                target.placement === "before" && "-translate-x-full -translate-y-1/2",
-                target.placement === "after" && "-translate-y-1/2",
                 target.placement === "center" && "-translate-1/2",
+                target.placement === "text-start" && "-translate-y-1/2",
+                target.placement === "left" && "-translate-x-full -translate-y-1/2",
+                (target.placement === "below" || target.placement === "above") &&
+                  "-translate-x-1/2",
               )}
               style={{
                 left: Math.max(4, target.left),
@@ -190,7 +198,11 @@ function HintOverlay({
           ))}
       </div>
       {state.prefix === "" ? (
-        <HintCommandGuide detail={commandDetail} pullRequestsSupported={pullRequestsSupported} />
+        <HintCommandGuide
+          position={state.commandGuidePosition}
+          detail={commandDetail}
+          pullRequestsSupported={pullRequestsSupported}
+        />
       ) : null}
     </div>
   );
