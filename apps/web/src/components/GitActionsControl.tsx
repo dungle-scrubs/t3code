@@ -41,6 +41,7 @@ import { Radio as RadioPrimitive } from "@base-ui/react/radio";
 import { RadioGroup } from "~/components/ui/radio-group";
 import { Spinner } from "~/components/ui/spinner";
 import { Toggle, ToggleGroup } from "~/components/ui/toggle-group";
+import { keyboardHintProps } from "~/lib/keyboardHints";
 import { cn } from "~/lib/utils";
 import {
   buildMenuItems,
@@ -1608,6 +1609,7 @@ export default function GitActionsControl({
                       variant="ghost"
                       part="secondary"
                       panel
+                      {...keyboardHintProps({ size: "compact" })}
                     />
                   }
                   disabled={isGitActionRunning}

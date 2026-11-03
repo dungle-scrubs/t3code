@@ -24,6 +24,7 @@ import {
   setSnapShotAnimationDestination,
   shouldAnimateSnapShotArrival,
 } from "../../lib/snapShotAnimation";
+import { keyboardHintProps } from "~/lib/keyboardHints";
 import { cn } from "~/lib/utils";
 import { getRestingComposerImagePreviewCounts } from "../composerFooterLayout";
 import { RefreshIcon } from "~/components/ui/refresh-icon";
@@ -704,6 +705,7 @@ export function ComposerAttachButton({
               onPointerDown={(event) => event.preventDefault()}
               onClick={() => inputRef.current?.click()}
               aria-label="Attach files"
+              {...keyboardHintProps({ size: "compact" })}
             />
           }
         >

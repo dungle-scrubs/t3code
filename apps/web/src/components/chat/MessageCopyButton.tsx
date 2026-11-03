@@ -4,6 +4,7 @@ import { Button } from "../ui/button";
 import { MorphIcon } from "~/components/MorphIcon";
 import { cn } from "~/lib/utils";
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
+import { keyboardHintProps } from "~/lib/keyboardHints";
 import {
   ANCHORED_COPY_TOAST_TIMEOUT_MS,
   showAnchoredCopyErrorToast,
@@ -49,6 +50,7 @@ export const MessageCopyButton = memo(function MessageCopyButton({
             size={size}
             variant={variant === "ghost" ? "ghost-muted" : variant}
             className={className}
+            {...keyboardHintProps({ size: "compact" })}
           />
         }
       >

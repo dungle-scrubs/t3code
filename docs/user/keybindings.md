@@ -3,6 +3,19 @@
 Customize shortcuts in **Settings → Keybindings** on web and desktop. That page
 also lists the command IDs and defaults available in your version.
 
+## Keyboard hints
+
+Press `Ctrl+Shift+Space` to label the controls you can click. Type a label to
+activate that control. This shortcut uses Control on Mac, Windows, and Linux.
+
+Escape removes the labels. Backspace deletes the last character you typed.
+Backspace with nothing typed removes the labels.
+
+Press `i` to open GitHub issues for the current project's repository. Without
+a GitHub repository, `i` does not open a page and the labels stay open.
+
+Press `p` to open the app's Pull requests page.
+
 ## Composer controls
 
 In **Settings → Chat → Send shortcut**, choose whether Enter sends, requires

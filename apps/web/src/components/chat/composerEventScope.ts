@@ -91,3 +91,17 @@ export function takeOpenTarget(trigger: HTMLElement | null): "effort" | "permiss
   }
   return null;
 }
+
+/** Hint activation opens menus mouse-style, so the popup root takes focus instead of an item. */
+export function focusSelectedComposerTrait(open: boolean, trigger: HTMLElement | null): void {
+  if (!open || !trigger) return;
+  const { ownerDocument } = trigger;
+  const popupId = trigger.getAttribute("aria-controls");
+  const popup = popupId ? ownerDocument.getElementById(popupId) : null;
+  if (!popup || popup !== ownerDocument.activeElement) return;
+  popup
+    .querySelector<HTMLElement>(
+      "[data-slot='menu-radio-group'] [role='menuitemradio'][aria-checked='true']:not([aria-disabled='true']):not([data-disabled])",
+    )
+    ?.focus({ preventScroll: true });
+}

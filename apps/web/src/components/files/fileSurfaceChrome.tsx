@@ -5,6 +5,7 @@ import { Button } from "~/components/ui/button";
 import { Toggle } from "~/components/ui/toggle";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { DIFF_SURFACE_THEME_UNSAFE_CSS } from "~/lib/diffRendering";
+import { keyboardHintProps } from "~/lib/keyboardHints";
 import { cn } from "~/lib/utils";
 
 export const FILE_SURFACE_SUBHEADER_CLASS =
@@ -63,9 +64,11 @@ export function FileSurfaceAction(props: {
   readonly pressed?: boolean;
   readonly disabled?: boolean;
   readonly onPress: () => void;
+  readonly keyboardHint?: Parameters<typeof keyboardHintProps>[0] | undefined;
   readonly children: ReactNode;
 }) {
   const pressed = props.pressed;
+  const hintProps = keyboardHintProps(props.keyboardHint ?? {});
   return (
     <Tooltip>
       <TooltipTrigger
@@ -79,6 +82,7 @@ export function FileSurfaceAction(props: {
               aria-label={props.label}
               variant="ghost"
               size="icon-sm"
+              {...hintProps}
             >
               {props.children}
             </Button>
@@ -91,6 +95,7 @@ export function FileSurfaceAction(props: {
               aria-label={props.label}
               variant="ghost"
               size="sm"
+              {...hintProps}
             >
               {props.children}
             </Toggle>

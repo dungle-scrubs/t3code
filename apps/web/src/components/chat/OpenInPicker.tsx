@@ -61,6 +61,7 @@ import {
   WebStormIcon,
 } from "../JetBrainsIcons";
 import { announce } from "~/lib/announce";
+import { keyboardHintProps } from "~/lib/keyboardHints";
 import { cn, isMacPlatform, isWindowsPlatform } from "~/lib/utils";
 import { shellEnvironment } from "~/state/shell";
 import { useAtomCommand } from "~/state/use-atom-command";
@@ -371,6 +372,7 @@ export const OpenInPicker = memo(function OpenInPicker({
         part="primary"
         panel={isPanel}
         disabled={!preferredEditor || !openInCwd || !canOpenEditor}
+        {...keyboardHintProps({ size: "compact" })}
         {...(enableShortcut && !backgroundThread ? { [OPEN_FAVORITE_EDITOR_ATTRIBUTE]: "" } : {})}
         onClick={() => {
           if (!preferredEditor) return;
@@ -420,6 +422,7 @@ export const OpenInPicker = memo(function OpenInPicker({
               variant={isPanel ? "ghost" : "outline"}
               part="secondary"
               panel={isPanel}
+              {...keyboardHintProps({ size: "compact" })}
             />
           }
         >

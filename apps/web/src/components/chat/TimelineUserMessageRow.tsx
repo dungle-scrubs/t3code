@@ -74,6 +74,7 @@ import {
 } from "@t3tools/shared/composerContextClipboard";
 import { chatMarkdownClipboardPayload } from "../../markdown-clipboard";
 import type { ChatMarkdownContextReference } from "../ChatMarkdown";
+import { keyboardHintProps } from "~/lib/keyboardHints";
 import { cn } from "~/lib/utils";
 import { markdownProseDirection } from "~/textDirection";
 import { useMediaQuery } from "~/hooks/useMediaQuery";
@@ -326,7 +327,10 @@ function AutomationMessageRow({ row }: { row: Extract<TimelineRow, { kind: "mess
       </div>
       <UserMessageProjectedStatus row={row} />
       {expanded ? (
-        <div className="flex w-full max-w-[80%] items-center justify-end pe-1 text-xs tabular-nums opacity-0 transition-opacity duration-200 pointer-coarse:opacity-100 focus-within:opacity-100 group-hover:opacity-100">
+        <div
+          className="flex w-full max-w-[80%] items-center justify-end pe-1 text-xs tabular-nums opacity-0 transition-opacity duration-200 pointer-coarse:opacity-100 focus-within:opacity-100 group-hover:opacity-100"
+          data-keyboard-hint-reveal=""
+        >
           <div className="flex shrink-0 items-center gap-2">
             {scheduledTaskId ? (
               <Link
@@ -1021,6 +1025,7 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
               "absolute end-full top-1/2 me-2 hidden w-max max-w-[calc(20cqw-0.5rem)] -translate-y-1/2 @min-[37rem]:flex",
               ACTIONS_REVEAL_CLASS_NAME,
             )}
+            data-keyboard-hint-reveal=""
           >
             {messageActions}
           </div>
@@ -1034,6 +1039,7 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
             floatActions && "@min-[37rem]:hidden",
             ACTIONS_REVEAL_CLASS_NAME,
           )}
+          data-keyboard-hint-reveal=""
         >
           {messageActions}
         </div>
@@ -1081,7 +1087,6 @@ function RevertUserMessageButton({
 }) {
   const ctx = use(TimelineRowCtx);
   const activity = use(TimelineRowActivityCtx);
-
   return (
     <Tooltip>
       <TooltipTrigger
@@ -1093,6 +1098,7 @@ function RevertUserMessageButton({
             disabled={activity.isRevertingCheckpoint || activity.isWorking}
             onClick={() => ctx.onRevertToTurnCount(turnCount, messageId)}
             aria-label="Edit from here"
+            {...keyboardHintProps({ size: "compact" })}
           />
         }
       >

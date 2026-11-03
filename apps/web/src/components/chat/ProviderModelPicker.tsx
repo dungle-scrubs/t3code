@@ -9,6 +9,7 @@ import { createContext, memo, type ReactNode, useRef, useState } from "react";
 import { Badge } from "../ui/badge";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { keyboardHintProps } from "~/lib/keyboardHints";
 import { cn } from "~/lib/utils";
 import { ModelPickerContent, resolveModelPickerSelectedModel } from "./ModelPickerContent";
 import { ChatGptSharingControl } from "./ChatGptSharingControl";
@@ -325,6 +326,7 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
               ).preventBaseUIHandler?.();
               openTarget(target);
             }}
+            {...(props.isComposerOwned ? keyboardHintProps({ size: "compact" }) : {})}
             className={cn(
               "min-w-0 shrink justify-between whitespace-nowrap",
               props.compact
