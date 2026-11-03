@@ -136,6 +136,7 @@ function ProjectFaviconFallback({
   if (emoji) {
     return (
       <span
+        role="img"
         aria-hidden="true"
         className={cn(
           "inline-flex size-3.5 shrink-0 items-center justify-center leading-none [container-type:size]",

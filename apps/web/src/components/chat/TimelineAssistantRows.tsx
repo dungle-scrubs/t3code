@@ -18,6 +18,7 @@ import { AssistantCitationSource } from "./AssistantCitationSource";
 import { resolveAssistantMessageCopyState } from "./MessagesTimeline.logic";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { cn } from "~/lib/utils";
+import { keyboardHintProps } from "~/lib/keyboardHints";
 import { useUiStateStore } from "~/uiStateStore";
 import { formatChatTimestampTooltip, formatDayAwareTimestamp } from "../../timestampFormat";
 import { useV2ItemSupport } from "../../state/v2ItemSupport";
@@ -119,6 +120,7 @@ function AssistantForkButton({
               );
             }}
             aria-label="Fork from this response"
+            {...keyboardHintProps({ size: "compact" })}
           />
         }
       >
@@ -174,6 +176,7 @@ function AssistantMessageMeta({
           : "opacity-0 pointer-coarse:opacity-100 focus-within:opacity-100 group-hover/assistant:opacity-100",
         className,
       )}
+      data-keyboard-hint-reveal={alwaysVisible ? undefined : ""}
     >
       {projectedItem && projectedItem.item.status !== "completed" ? (
         <span className="rounded-full border border-border/70 px-1.5 py-0.5 font-mono text-3xs text-muted-foreground">

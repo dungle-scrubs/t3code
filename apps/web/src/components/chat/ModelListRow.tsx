@@ -7,6 +7,7 @@ import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
 import { Kbd } from "../ui/kbd";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { keyboardHintProps } from "~/lib/keyboardHints";
 import { cn } from "~/lib/utils";
 import { modelPickerModelKey } from "./modelPickerKeys";
 import { ProviderInstanceIcon } from "./ProviderInstanceIcon";
@@ -117,8 +118,11 @@ export const ModelListRow = memo(function ModelListRow(props: {
                 }}
                 disabled={Boolean(props.disabledReason)}
                 aria-label={props.isFavorite ? "Remove from favorites" : "Add to favorites"}
+                {...keyboardHintProps({ size: "compact", hoverSide: "left" })}
+                data-keyboard-hint-reveal=""
               >
                 <StarIcon
+                  data-keyboard-hint-reveal=""
                   className={cn(
                     "size-3.5 sm:size-3",
                     props.isFavorite && "fill-current text-warning",

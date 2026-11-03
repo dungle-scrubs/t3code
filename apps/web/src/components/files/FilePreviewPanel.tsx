@@ -1286,6 +1286,7 @@ export default function FilePreviewPanel({
             <FileSurfaceAction
               label={renderedToggleLabel(renderedMode, rendered)}
               pressed={rendered}
+              keyboardHint={{ size: "compact" }}
               onPress={() => {
                 const pressed = !rendered;
                 setRenderedPreferred(pressed);
@@ -1307,12 +1308,17 @@ export default function FilePreviewPanel({
               label={wordWrap ? "Disable word wrap" : "Enable word wrap"}
               pressed={wordWrap}
               onPress={() => setWordWrapOverride(!wordWrap)}
+              keyboardHint={{ size: "compact" }}
             >
               <WrapTextIcon className="size-3.5" />
             </FileSurfaceAction>
           ) : null}
           {canOpenInBrowser ? (
-            <FileSurfaceAction label="Open file in preview browser" onPress={handleOpenInBrowser}>
+            <FileSurfaceAction
+              label="Open file in preview browser"
+              onPress={handleOpenInBrowser}
+              keyboardHint={{ size: "compact" }}
+            >
               <Globe2 className="size-3.5" />
             </FileSurfaceAction>
           ) : null}
@@ -1321,6 +1327,7 @@ export default function FilePreviewPanel({
               label={explorerOpen ? "Hide file explorer" : "Show file explorer"}
               pressed={explorerOpen}
               onPress={toggleExplorer}
+              keyboardHint={{ size: "compact" }}
             >
               <FolderTree className="size-3.5" />
             </FileSurfaceAction>

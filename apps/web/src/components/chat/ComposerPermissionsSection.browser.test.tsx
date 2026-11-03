@@ -3,11 +3,13 @@ import { type ReactNode, useRef, useState } from "react";
 import { expect, it, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 
-import { render } from "../../../test/render";
+import { act, render } from "../../../test/render";
+import { createKeyboardHintsController } from "../../lib/keyboardHints";
 import { ComposerHandleContext, type ComposerHandleRef } from "../../composerHandleContext";
 import { Menu, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuTrigger } from "../ui/menu";
 import {
   focusRequestedPermission,
+  focusSelectedComposerTrait,
   markOpenToPermissions,
   useComposerMenuProps,
 } from "./composerEventScope";
@@ -74,6 +76,70 @@ it("reaches Permissions from the mode items with arrow keys, previews, and picks
     .element(page.getByRole("menuitemradio", { name: "Supervised" }))
     .not.toBeInTheDocument();
   await expect.element(trigger).toHaveFocus();
+});
+
+function EffortMenu() {
+  const [effort, setEffort] = useState("high");
+  const [mode, setMode] = useState<RuntimeMode>("full-access");
+  const composerMenuProps = useComposerMenuProps();
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  return (
+    <>
+      <Menu
+        onOpenChangeComplete={(open) => {
+          focusRequestedPermission(open, triggerRef.current);
+          focusSelectedComposerTrait(open, triggerRef.current);
+        }}
+      >
+        <MenuTrigger ref={triggerRef}>Effort</MenuTrigger>
+        <MenuPopup {...composerMenuProps}>
+          <MenuRadioGroup value={effort} onValueChange={setEffort}>
+            <MenuRadioItem value="low">Low</MenuRadioItem>
+            <MenuRadioItem value="high">High</MenuRadioItem>
+          </MenuRadioGroup>
+          <ComposerPermissionsSection
+            runtimeMode={mode}
+            runtimeModeOptions={options}
+            onRuntimeModeChange={setMode}
+          />
+        </MenuPopup>
+      </Menu>
+      <p role="status">{mode}</p>
+    </>
+  );
+}
+
+it("focuses the selected effort when opened through a keyboard hint", async () => {
+  await using screen = await render(<EffortMenu />, { router: false }); // no routes involved
+  const trigger = screen.getByRole("button", { name: "Effort" });
+  const controller = createKeyboardHintsController(document, () => {});
+  try {
+    await act(async () => {
+      controller.handleKeyDown(
+        new KeyboardEvent("keydown", {
+          key: " ",
+          code: "Space",
+          ctrlKey: true,
+          shiftKey: true,
+        }),
+      );
+    });
+    const target = controller.state.targets.find((item) => item.element === trigger.element());
+    expect(target).toBeDefined();
+    for (const key of target!.label) {
+      await act(async () => {
+        controller.handleKeyDown(new KeyboardEvent("keydown", { key }));
+      });
+    }
+
+    const high = page.getByRole("menuitemradio", { name: "High" });
+    await expect.element(high).toHaveFocus();
+    await userEvent.keyboard("{ArrowUp}");
+    await expect.element(page.getByRole("menuitemradio", { name: "Low" })).toHaveFocus();
+    await expect.element(high).toHaveAttribute("aria-checked", "true");
+  } finally {
+    controller.dispose();
+  }
 });
 
 it("marks the current mode as checked and closes on Escape", async () => {

@@ -86,6 +86,7 @@ import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { toastManager } from "../ui/toast";
 import { Spinner } from "../ui/spinner";
+import { keyboardHintProps } from "~/lib/keyboardHints";
 import { cn } from "~/lib/utils";
 import {
   THREAD_DETAILS_PANEL_CHEVRON_CLASS,
@@ -151,7 +152,11 @@ function ThreadLineageGroup(props: {
   return (
     <div>
       {props.label ? (
-        <ThreadDetailsControl aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>
+        <ThreadDetailsControl
+          aria-expanded={expanded}
+          onClick={() => setExpanded(!expanded)}
+          {...keyboardHintProps({ size: "compact" })}
+        >
           <BotIcon aria-hidden className={THREAD_DETAILS_PANEL_ICON_CLASS} />
           <span className={cn(THREAD_DETAILS_PANEL_LABEL_CLASS, "min-w-0 flex-1 truncate")}>
             {props.label}
@@ -910,6 +915,7 @@ export function ThreadRelationshipsPanel(props: {
                       part="icon"
                       aria-label="More thread actions"
                       disabled={busyAction !== null}
+                      {...keyboardHintProps({ size: "compact" })}
                     />
                   }
                 >

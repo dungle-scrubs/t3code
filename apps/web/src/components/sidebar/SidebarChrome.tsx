@@ -1,6 +1,5 @@
 import { ArrowLeftIcon, ArrowRightIcon, ChartNoAxesColumnIcon, SettingsIcon } from "lucide-react";
-import type { ReactNode } from "react";
-import { memo } from "react";
+import { memo, type ComponentType, type SVGProps } from "react";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 
 import { useAtomValue } from "@effect/atom-react";
@@ -12,6 +11,7 @@ import {
   type HistoryDirection,
 } from "../../navigationHistory";
 import { primaryServerKeybindingsAtom } from "../../state/server";
+import { keyboardHintProps } from "../../lib/keyboardHints";
 import { cn } from "../../lib/utils";
 import { usePullRequestsSupported } from "../../state/environments";
 import { T3Wordmark } from "../T3Wordmark";
@@ -69,6 +69,7 @@ export const SidebarChromeHeader = memo(function SidebarChromeHeader({
           variant={backdropVariant ? "media-navigation" : "ghost"}
           className="relative top-auto translate-y-0"
           aria-label="Toggle main sidebar"
+          {...keyboardHintProps({ size: "compact" })}
         />
       </div>
       <div className="relative z-10 flex h-8 min-w-0 flex-1 flex-wrap content-start items-center gap-x-2 overflow-hidden py-0.5">
@@ -149,6 +150,7 @@ function HistoryNavigationButton({
             onClick={() => navigateHistory(direction)}
             size="icon-sm"
             variant={onBackdrop ? "media-navigation" : "ghost"}
+            {...keyboardHintProps({ size: "compact" })}
           />
         }
       >
@@ -171,6 +173,7 @@ function SidebarBrand({ onBackdrop }: { onBackdrop: boolean }) {
         onBackdrop ? "text-white" : "text-foreground",
       )}
       to="/"
+      {...keyboardHintProps({ size: "compact" })}
     >
       <SidebarBrandMark onBackdrop={onBackdrop} />
     </Link>
@@ -194,11 +197,11 @@ function SidebarBrandMark({ onBackdrop }: { onBackdrop: boolean }) {
 }
 
 function SidebarUtilityItem({
-  icon,
+  icon: Icon,
   label,
   onClick,
 }: {
-  icon: ReactNode;
+  icon: ComponentType<SVGProps<SVGSVGElement>>;
   label: string;
   onClick: () => void;
 }) {
@@ -207,8 +210,13 @@ function SidebarUtilityItem({
       <Tooltip>
         <TooltipTrigger
           render={
-            <SidebarMenuButton aria-label={label} onClick={onClick} size="icon">
-              {icon}
+            <SidebarMenuButton
+              aria-label={label}
+              onClick={onClick}
+              size="icon"
+              {...keyboardHintProps({ size: "compact" })}
+            >
+              <Icon />
             </SidebarMenuButton>
           }
         />
@@ -266,20 +274,16 @@ const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
         </SidebarMenuItem>
       ) : (
         <>
-          <SidebarUtilityItem
-            icon={<SettingsIcon />}
-            label="Settings"
-            onClick={handleSettingsClick}
-          />
+          <SidebarUtilityItem icon={SettingsIcon} label="Settings" onClick={handleSettingsClick} />
           {pullRequestsSupported ? (
             <SidebarUtilityItem
-              icon={<PullRequestGlyph.pullRequest />}
+              icon={PullRequestGlyph.pullRequest}
               label="Pull requests"
               onClick={handlePullRequestsClick}
             />
           ) : null}
           <SidebarUtilityItem
-            icon={<ChartNoAxesColumnIcon />}
+            icon={ChartNoAxesColumnIcon}
             label="Usage"
             onClick={handleUsageClick}
           />

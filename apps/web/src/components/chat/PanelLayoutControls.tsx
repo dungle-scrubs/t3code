@@ -3,6 +3,7 @@ import { Maximize2, Minimize2 } from "lucide";
 import { MorphIcon } from "~/components/MorphIcon";
 import { memo, type ReactNode } from "react";
 
+import { keyboardHintProps } from "~/lib/keyboardHints";
 import { cn } from "~/lib/utils";
 
 import type { ThreadPanelPresentation } from "../../rightPanelLayout";
@@ -57,6 +58,7 @@ export const PanelLayoutControls = memo(function PanelLayoutControls({
       aria-label="Toggle thread details panel"
       variant="ghost"
       size="sm"
+      {...keyboardHintProps({ size: "compact" })}
     >
       <SquareMenuIcon className="size-4" />
     </Toggle>
@@ -93,6 +95,7 @@ export const PanelLayoutControls = memo(function PanelLayoutControls({
               aria-label="Toggle terminal drawer"
               variant="ghost"
               size="sm"
+              {...keyboardHintProps({ size: "compact" })}
               disabled={!terminalAvailable}
             >
               <PanelBottomIcon className="size-4" />
@@ -116,6 +119,7 @@ export const PanelLayoutControls = memo(function PanelLayoutControls({
               data-right-panel-toggle
               variant="ghost"
               size="sm"
+              {...keyboardHintProps({ size: "compact" })}
               disabled={!rightPanelAvailable}
             >
               <PanelRightIcon className="size-4" />
@@ -151,6 +155,7 @@ export const RightPanelMaximizeControl = memo(function RightPanelMaximizeControl
             aria-label={label}
             variant="ghost"
             size="sm"
+            {...keyboardHintProps({ size: "compact" })}
           >
             <MorphIcon className="size-4" icon={maximized ? Minimize2 : Maximize2} />
           </Toggle>

@@ -22,6 +22,7 @@ import { setLocalStorageItem } from "~/hooks/useLocalStorage";
 import { resolveSidebarState, type ResponsiveSidebarState } from "./sidebarState";
 import * as Schema from "effect/Schema";
 import { announceSidebarVisibility } from "~/lib/accessibilityAnnouncements";
+import { keyboardHintProps } from "~/lib/keyboardHints";
 
 const SIDEBAR_COOKIE_NAME = "sidebar_state";
 const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7;
@@ -556,6 +557,7 @@ function SidebarRail({
             )}
             data-sidebar="rail"
             data-slot="sidebar-rail"
+            {...keyboardHintProps({ skip: canResize })}
             onClick={handleClick}
             onLostPointerCapture={(event) => {
               onLostPointerCapture?.(event);

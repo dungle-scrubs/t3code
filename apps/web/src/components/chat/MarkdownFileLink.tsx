@@ -8,6 +8,7 @@ import type { EnvironmentId, ScopedThreadRef } from "@t3tools/contracts";
 import { memo, type MouseEvent as ReactMouseEvent } from "react";
 
 import { readLocalApi } from "../../localApi";
+import { keyboardHintProps } from "../../lib/keyboardHints";
 import { cn } from "../../lib/utils";
 import { shouldOpenMarkdownFileLinkInEditor } from "../../markdown-links";
 import type { markdownFileCopyPaths } from "../../markdownFileHostPath";
@@ -334,6 +335,7 @@ export const MarkdownFileLink = memo(function MarkdownFileLink({
               render={<a href={href} />}
               className={MARKDOWN_FILE_LINK_CLASS_NAME}
               data-markdown-copy={copyMarkdown}
+              {...keyboardHintProps({ size: "compact" })}
               onClick={(event) => {
                 event.preventDefault();
                 event.stopPropagation();
@@ -365,6 +367,7 @@ export const MarkdownFileLink = memo(function MarkdownFileLink({
               aria-haspopup="menu"
               className={cn(MARKDOWN_FILE_LINK_CLASS_NAME, "select-text")}
               data-markdown-copy={copyMarkdown}
+              {...keyboardHintProps({ size: "compact" })}
               onClick={handleContextMenu}
               onContextMenu={handleContextMenu}
             >
