@@ -6,9 +6,12 @@ import { useStableCallback } from "~/hooks/useStableCallback";
 import { type PendingUserInput } from "../../session-logic";
 import type { PendingUserInputDraftAnswer } from "@t3tools/client-runtime/state/pending-user-input";
 import { derivePendingUserInputProgress } from "../../pendingUserInput";
+import { Button } from "../ui/button";
 import { CheckboxMark } from "../ui/checkbox";
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../ui/collapsible";
+import { Input } from "../ui/input";
 import { Kbd } from "../ui/kbd";
+import { Textarea } from "../ui/textarea";
 import { cn } from "~/lib/utils";
 import { isInSideChatPane } from "~/lib/sideChatPane";
 import { ComposerBanner } from "./ComposerBanner";
@@ -23,6 +26,8 @@ interface PendingUserInputPanelProps {
   answers: Record<string, PendingUserInputDraftAnswer>;
   questionIndex: number;
   onToggleOption: (questionId: string, optionValue: string) => void;
+  onChangeCustomAnswer: (questionId: string, value: string) => void;
+  onPrevious: () => void;
   onAdvance: () => void;
   onDismiss: (requestId: RuntimeRequestId) => void;
 }
@@ -36,6 +41,8 @@ export const ComposerPendingUserInputPanel = memo(function ComposerPendingUserIn
   answers,
   questionIndex,
   onToggleOption,
+  onChangeCustomAnswer,
+  onPrevious,
   onAdvance,
   onDismiss,
 }: PendingUserInputPanelProps) {
@@ -54,6 +61,8 @@ export const ComposerPendingUserInputPanel = memo(function ComposerPendingUserIn
       answers={answers}
       questionIndex={questionIndex}
       onToggleOption={onToggleOption}
+      onChangeCustomAnswer={onChangeCustomAnswer}
+      onPrevious={onPrevious}
       onAdvance={onAdvance}
       onDismiss={onDismiss}
     />
@@ -69,6 +78,8 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
   answers,
   questionIndex,
   onToggleOption,
+  onChangeCustomAnswer,
+  onPrevious,
   onAdvance,
   onDismiss,
 }: {
@@ -80,12 +91,16 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
   answers: Record<string, PendingUserInputDraftAnswer>;
   questionIndex: number;
   onToggleOption: (questionId: string, optionValue: string) => void;
+  onChangeCustomAnswer: (questionId: string, value: string) => void;
+  onPrevious: () => void;
   onAdvance: () => void;
   onDismiss: (requestId: RuntimeRequestId) => void;
 }) {
   // Message-mode requests remain answerable after their provider turn ends.
   const canRespond = prompt.responseCapability !== "not_resumable";
   const responseDisabled = disabled || isResponding || !canRespond;
+  // Message-mode answers live in the card so the composer stays free for normal prompts.
+  const answersInCard = prompt.responseMode === "message";
   const autoAdvanceTimerRef = useRef<number | null>(null);
   const advance = useStableCallback(onAdvance);
   const [optimisticSingleSelect, setOptimisticSingleSelect] = useState<{
@@ -179,6 +194,10 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
   if (!activeQuestion) {
     return null;
   }
+  const customAnswerField = answersInCard && activeQuestion.allowCustomAnswer !== false;
+  const showAnswerActions =
+    answersInCard &&
+    (customAnswerField || activeQuestion.multiSelect || prompt.questions.length > 1);
 
   const promptDirection = markdownProseDirection(
     prompt.questions
@@ -326,6 +345,64 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
                 );
               })}
             </div>
+            {customAnswerField ? (
+              <div className="mt-2">
+                {activeQuestion.initialAnswer === undefined ? (
+                  <Input
+                    nativeInput
+                    size="sm"
+                    aria-label="Your answer"
+                    placeholder="Type your own answer"
+                    value={progress.customAnswer}
+                    disabled={responseDisabled}
+                    onChange={(event) =>
+                      onChangeCustomAnswer(activeQuestion.id, event.target.value)
+                    }
+                    onKeyDown={(event) => {
+                      if (event.key !== "Enter" || event.nativeEvent.isComposing) return;
+                      // Enter would submit the surrounding composer form as a normal prompt.
+                      event.preventDefault();
+                      advance();
+                    }}
+                  />
+                ) : (
+                  <Textarea
+                    size="sm"
+                    aria-label="Your answer"
+                    value={progress.customAnswer}
+                    disabled={responseDisabled}
+                    onChange={(event) =>
+                      onChangeCustomAnswer(activeQuestion.id, event.target.value)
+                    }
+                  />
+                )}
+              </div>
+            ) : null}
+            {showAnswerActions ? (
+              <div className="mt-2 flex items-center justify-end gap-2">
+                {progress.questionIndex > 0 ? (
+                  <Button size="sm" variant="outline" disabled={isResponding} onClick={onPrevious}>
+                    Previous
+                  </Button>
+                ) : null}
+                <Button
+                  size="sm"
+                  disabled={
+                    responseDisabled ||
+                    (progress.isLastQuestion ? !progress.isComplete : !progress.canAdvance)
+                  }
+                  onClick={() => advance()}
+                >
+                  {isResponding
+                    ? "Submitting..."
+                    : !progress.isLastQuestion
+                      ? "Next question"
+                      : progress.questionIndex > 0
+                        ? "Submit answers"
+                        : "Submit answer"}
+                </Button>
+              </div>
+            ) : null}
           </ComposerBanner.Body>
         </ComposerBanner.Scroll>
       </CollapsiblePanel>

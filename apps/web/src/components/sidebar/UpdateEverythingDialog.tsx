@@ -88,6 +88,7 @@ const APP_LABELS = {
   "this-app": "This app",
   server: "Server",
   "desktop-app": "Desktop app",
+  checkout: "Checkout",
 } as const;
 
 function UpdateEverythingDialogContent({

@@ -912,9 +912,12 @@ function ThreadDetailBody(
     readonly collapsed: boolean;
   } | null>(null);
   const activeUserInputRequestId = props.activePendingUserInput?.requestId ?? null;
+  // A message-mode question is answered in its card while the composer stays usable.
+  const blockingUserInputRequestId =
+    props.activePendingUserInput?.responseMode === "message" ? null : activeUserInputRequestId;
   const questionInFlow = Platform.OS === "android" && activeUserInputRequestId !== null;
   const composerSlotHidden =
-    activeUserInputRequestId !== null || props.creationState?.kind === "failed";
+    blockingUserInputRequestId !== null || props.creationState?.kind === "failed";
   const pendingMessageEditBlocked =
     queuedRunEditBlockedReason({ openQuestionCount: activeUserInputRequestId === null ? 0 : 1 }) !==
     null;
@@ -1238,7 +1241,7 @@ function ThreadDetailBody(
     // empty submit, a queued-message edit, or `/feedback` leaves approvals alone.
     const approvalsToDecline = props.activePendingApprovals;
     const declineBeforeDispatch =
-      approvalsToDecline.length > 0 && props.activePendingUserInput === null
+      approvalsToDecline.length > 0 && blockingUserInputRequestId === null
         ? async (text: string, hasAttachmentsOrContext: boolean) => {
             if (scope.aborted || stillSendable?.() === false || props.respondingApprovalId !== null)
               return false;
@@ -1702,7 +1705,7 @@ function ThreadDetailBody(
                       <Animated.View
                         className="shrink-0 gap-3 px-4 pb-3"
                         style={
-                          activeUserInputRequestId !== null
+                          blockingUserInputRequestId !== null
                             ? { paddingBottom: composerBottomInset }
                             : undefined
                         }

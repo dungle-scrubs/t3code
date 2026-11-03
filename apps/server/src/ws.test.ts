@@ -32,6 +32,7 @@ import { Headers } from "effect/http";
 import { RpcGroup, RpcMessage, RpcServer } from "effect/rpc";
 import * as SqlClient from "effect/sql/SqlClient";
 
+import * as ProcessRunner from "./processRunner.ts";
 import * as PreviewAutomationBroker from "./mcp/PreviewAutomationBroker.ts";
 import * as ServerBrowser from "./preview/ServerBrowser.ts";
 import * as AcpRegistryRuntimeCoordinator from "@t3tools/provider-acp-registry/server/AcpRegistryRuntimeCoordinator";
@@ -886,7 +887,10 @@ it.effect.each([
             {},
             yield* ServerBrowser.ServerBrowser,
             () => Effect.void,
-          ).pipe(Layer.provide(configRpcServices)),
+          ).pipe(
+            Layer.provide(configRpcServices),
+            Layer.provide(ProcessRunner.layer.pipe(Layer.provide(NodeServices.layer))),
+          ),
         ),
       );
       const requestId = RpcMessage.RequestId("config");
@@ -1104,7 +1108,10 @@ it.effect("on-demand clients get provider config without workspace snapshots", (
           {},
           yield* ServerBrowser.ServerBrowser,
           () => Effect.void,
-        ).pipe(Layer.provide(configRpcServices)),
+        ).pipe(
+          Layer.provide(configRpcServices),
+          Layer.provide(ProcessRunner.layer.pipe(Layer.provide(NodeServices.layer))),
+        ),
       ),
     );
     const configRequest = RpcMessage.RequestId("config");

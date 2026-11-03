@@ -123,6 +123,72 @@ describe("pi T3 MCP injection", () => {
     assert.deepInclude(resolvePiLaunchArgs("--plan @instructions.md"), { ok: false });
   });
 
+  it("approves project trust only when the caller opts in and the user set no trust flag", () => {
+    const approved = buildPiRpcLaunch({
+      launchArgs: [],
+      environment: {},
+      mcpSession: undefined,
+      extensionPath: undefined,
+      trustProject: true,
+    });
+    assert.deepEqual(approved.args, ["--mode", "rpc", "--approve"]);
+
+    const absent = buildPiRpcLaunch({
+      launchArgs: [],
+      environment: {},
+      mcpSession: undefined,
+      extensionPath: undefined,
+    });
+    assert.deepEqual(absent.args, ["--mode", "rpc"]);
+
+    const optedOut = buildPiRpcLaunch({
+      launchArgs: [],
+      environment: {},
+      mcpSession: undefined,
+      extensionPath: undefined,
+      trustProject: false,
+    });
+    assert.deepEqual(optedOut.args, ["--mode", "rpc"]);
+
+    for (const alias of ["--approve", "-a"]) {
+      const launch = buildPiRpcLaunch({
+        launchArgs: [alias],
+        environment: {},
+        mcpSession: undefined,
+        extensionPath: undefined,
+        trustProject: true,
+      });
+      assert.deepEqual(launch.args, ["--mode", "rpc", alias]);
+    }
+
+    for (const alias of ["--no-approve", "-na"]) {
+      const launch = buildPiRpcLaunch({
+        launchArgs: [alias],
+        environment: {},
+        mcpSession: undefined,
+        extensionPath: undefined,
+        trustProject: true,
+      });
+      assert.deepEqual(launch.args, ["--mode", "rpc", alias]);
+    }
+
+    // A trust-looking token that is the value of another option is not a trust override.
+    const flagLookingValue = buildPiRpcLaunch({
+      launchArgs: ["--name", "--no-approve"],
+      environment: {},
+      mcpSession: undefined,
+      extensionPath: undefined,
+      trustProject: true,
+    });
+    assert.deepEqual(flagLookingValue.args, [
+      "--mode",
+      "rpc",
+      "--approve",
+      "--name",
+      "--no-approve",
+    ]);
+  });
+
   it("rejects --provider without --model, which Pi 1.0 refuses at startup", () => {
     const rejection = {
       ok: false,
