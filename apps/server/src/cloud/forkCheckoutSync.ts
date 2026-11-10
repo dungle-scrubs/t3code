@@ -1,8 +1,10 @@
 import { ForkCheckoutSyncError, type ForkCheckoutSyncResult } from "@t3tools/contracts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
+import * as Config from "effect/Config";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
+import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 
 import * as ProcessRunner from "../processRunner.ts";
@@ -50,7 +52,11 @@ const failed = (reason: string, cause?: unknown) =>
 const locateForkCheckout = Effect.fn("cloud.forkCheckoutSync.locate")(function* () {
   const path = yield* Path.Path;
   const fs = yield* FileSystem.FileSystem;
-  const envCheckout = process.env.T3_FORK_CHECKOUT?.trim();
+  const envCheckout = (yield* Config.String("T3_FORK_CHECKOUT").pipe(
+    Config.option,
+    Config.map(Option.getOrUndefined),
+    Effect.orElseSucceed(() => undefined),
+  ))?.trim();
   if (envCheckout !== undefined && envCheckout !== "") {
     const root = path.resolve(envCheckout);
     return (yield* fs.exists(path.join(root, ".git")).pipe(Effect.orElseSucceed(() => false)))
