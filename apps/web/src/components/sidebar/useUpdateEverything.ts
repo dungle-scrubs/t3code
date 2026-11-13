@@ -1,8 +1,4 @@
 import { useAtomValue } from "@effect/atom-react";
-import {
-  isAtomCommandInterrupted,
-  squashAtomCommandFailure,
-} from "@t3tools/client-runtime/state/runtime";
 import { PROVIDER_DISPLAY_NAMES } from "@t3tools/contracts";
 
 import { APP_VERSION } from "~/branding";
@@ -10,9 +6,8 @@ import { isDesktopLocalConnectionTarget } from "~/connection/desktopLocal";
 import { isElectron } from "~/env";
 import { useEnvironments } from "~/state/environments";
 import { environmentIdsKey } from "~/state/environmentAtomList";
-import { environmentUpdateStatesAtom, serverEnvironment } from "~/state/server";
+import { environmentUpdateStatesAtom } from "~/state/server";
 import { environmentSessionStatesAtom } from "~/state/session";
-import { useAtomCommand } from "~/state/use-atom-command";
 import { getProviderUpdateRunOutcome } from "../ProviderUpdateLaunchNotification.logic";
 import { useProviderUpdates } from "../ProviderUpdatesAction";
 import { canUpdateServer, type ServerUpdateOutcome, useServerUpdate } from "../ServerUpdateAction";
@@ -20,7 +15,6 @@ import {
   type ChannelSwitchRelease,
   closeFinishedUpdateRun,
   collectChannelSwitchTargets,
-  collectForkSyncTargets,
   collectRestartingMachines,
   collectServerUpdateTargets,
   collectUpdateEverythingResult,
@@ -39,8 +33,6 @@ import {
 } from "./updateEverythingRun";
 
 const UPDATE_RESTART_DELAY_MS = 5_000;
-const FORK_SYNC_NOTE =
-  "Pulls origin/main in each machine's fork checkout and rebuilds the desktop app when that pull moves HEAD. Quit T3 Code and run vp run start:desktop afterward. Provider updates still install their published versions.";
 
 /** Servers this desktop app runs; they update with it. */
 export function isHostedByThisApp(
@@ -74,32 +66,19 @@ export function useUpdateEverything(
     canMaintain: canUpdateServer(sessionStates[index]!),
     updateState: updateStates[index]!,
   }));
-  const forkSync =
-    channelSwitch === undefined &&
-    machines.some(
-      (machine) => machine.serverConfig?.environment.capabilities.forkCheckoutSync === true,
-    );
   const { targets: servers, skipped } = channelSwitch
     ? collectChannelSwitchTargets(machines, channelSwitch)
-    : forkSync
-      ? collectForkSyncTargets(machines)
-      : collectServerUpdateTargets(machines, targetVersion);
+    : collectServerUpdateTargets(machines, targetVersion);
   // Track-only hosts save a setting and restart nothing, so they are neither listed nor counted.
   const moving = servers.filter((server) => server.trackOnly !== true);
-  const restarts = forkSync
-    ? []
-    : collectRestartingMachines(machines, moving, localUpdateVersion !== null);
+  const restarts = collectRestartingMachines(machines, moving, localUpdateVersion !== null);
   const providerUpdates = useProviderUpdates();
   // A track switch moves app and servers only; provider updates stay a separate choice.
   const providers = channelSwitch ? { machines: [], updateAll: async () => [] } : providerUpdates;
   const updateServer = useServerUpdate();
-  const syncForkCheckout = useAtomCommand(serverEnvironment.syncForkCheckout, {
-    reportFailure: false,
-  });
 
   const view = describeUpdateEverything({
-    localVersion: forkSync ? null : localUpdateVersion,
-    forkSync,
+    localVersion: localUpdateVersion,
     localMachines: machines.filter((machine) => machine.hostedByThisApp),
     servers: moving,
     skipped,
@@ -112,33 +91,10 @@ export function useUpdateEverything(
     })),
   });
 
-  const syncCheckout = async (
-    environmentId: UpdateRunMachine["environmentId"],
-  ): Promise<ServerUpdateOutcome> => {
-    const result = await syncForkCheckout({ environmentId, input: {} });
-    if (result._tag === "Failure") {
-      if (isAtomCommandInterrupted(result)) return { status: "skipped" };
-      const error = squashAtomCommandFailure(result);
-      return {
-        status: "failed",
-        message: error instanceof Error ? error.message : "Checkout sync failed.",
-      };
-    }
-    return { status: "updated" };
-  };
-
   return {
     hasUpdates: servers.length > 0 || providers.machines.length > 0,
     ...view,
     restarts,
-    forkSync,
-    ...(forkSync
-      ? {
-          confirmLabel: "Synchronize",
-          dialogTitle: "Synchronize these machines?",
-          notes: [FORK_SYNC_NOTE],
-        }
-      : {}),
     run: async ({
       downloadLocal,
       installLocal,
@@ -227,9 +183,7 @@ export function useUpdateEverything(
           },
           updateServers: async () => {
             const runs = servers.map(async (server) => {
-              const serverOutcome = server.forkSync
-                ? await syncCheckout(server.environmentId)
-                : await updateServer(server, { quiet: true });
+              const serverOutcome = await updateServer(server, { quiet: true });
               settleUpdateRunMachine(
                 server.environmentId,
                 serverOutcome.status === "failed"
@@ -258,7 +212,6 @@ export function useUpdateEverything(
             localFailures,
             servers: finished,
             providers: outcome.providers,
-            ...(forkSync ? { checkoutSync: true } : {}),
           });
         if (outcome.localReady && installLocal) {
           if (await waitForUpdateRestart(UPDATE_RESTART_DELAY_MS)) {

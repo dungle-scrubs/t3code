@@ -54,7 +54,6 @@ import * as SqlClient from "effect/sql/SqlClient";
 import * as Statement from "effect/sql/Statement";
 import { vi } from "vite-plus/test";
 
-import * as ProcessRunner from "./processRunner.ts";
 import * as AssetSigner from "./assets/AssetSigner.ts";
 import * as PreviewAutomationBroker from "./mcp/PreviewAutomationBroker.ts";
 import * as ServerBrowser from "./preview/ServerBrowser.ts";
@@ -1032,10 +1031,7 @@ it.effect.each([
             yield* ServerBrowser.ServerBrowser,
             () => Effect.void,
             { secretReferences: true },
-          ).pipe(
-            Layer.provide(configRpcServices),
-            Layer.provide(ProcessRunner.layer.pipe(Layer.provide(NodeServices.layer))),
-          ),
+          ).pipe(Layer.provide(configRpcServices)),
         ),
       );
       const requestId = RpcMessage.RequestId("config");
@@ -1255,7 +1251,6 @@ it.effect("access changes made while the snapshot loads reach the client after i
     Effect.provide(
       Layer.mergeAll(
         Layer.fresh(layerConfigSources),
-        ProcessRunner.layer.pipe(Layer.provide(NodeServices.layer)),
         Layer.mock(PreviewAutomationBroker.PreviewAutomationBroker)({}),
         Layer.mock(ServerBrowser.ServerBrowser)({}),
       ),
@@ -1394,10 +1389,7 @@ it.effect("on-demand clients get provider config without workspace snapshots", (
           yield* ServerBrowser.ServerBrowser,
           () => Effect.void,
           { secretReferences: true },
-        ).pipe(
-          Layer.provide(configRpcServices),
-          Layer.provide(ProcessRunner.layer.pipe(Layer.provide(NodeServices.layer))),
-        ),
+        ).pipe(Layer.provide(configRpcServices)),
       ),
     );
     const configRequest = RpcMessage.RequestId("config");
@@ -1758,10 +1750,7 @@ it.effect("a missing thread worktree gets its project's skills in the cwd snapsh
           yield* ServerBrowser.ServerBrowser,
           () => Effect.void,
           { secretReferences: true },
-        ).pipe(
-          Layer.provide(services),
-          Layer.provide(ProcessRunner.layer.pipe(Layer.provide(NodeServices.layer))),
-        ),
+        ).pipe(Layer.provide(services)),
       ),
     );
 
@@ -1860,7 +1849,6 @@ it.effect("a git action that fails partway still refreshes the repository status
     Effect.provide(
       Layer.mergeAll(
         Layer.fresh(layerConfigSources),
-        ProcessRunner.layer.pipe(Layer.provide(NodeServices.layer)),
         Layer.mock(PreviewAutomationBroker.PreviewAutomationBroker)({}),
         Layer.mock(ServerBrowser.ServerBrowser)({}),
       ),
@@ -1923,7 +1911,6 @@ it.effect("a publish whose push fails still refreshes the new remote", () =>
           { secretReferences: true },
         ).pipe(
           Layer.provide(services),
-          Layer.provide(ProcessRunner.layer.pipe(Layer.provide(NodeServices.layer))),
           Layer.merge(RpcAuthorization.layer([AuthSourceControlWriteScope])),
         ),
       ),
@@ -2355,7 +2342,6 @@ it.effect("ACP session RPCs list a thread missing its history and repair it on i
     const dependencies = Layer.mergeAll(
       layerUnusedConfigRpcServices,
       Layer.fresh(layerConfigSources),
-      ProcessRunner.layer.pipe(Layer.provide(NodeServices.layer)),
       Layer.mock(ExternalLauncher.ExternalLauncher)({}),
       Layer.mock(ProviderRegistry.ProviderRegistry)({}),
       Layer.mock(UsageLimitSources.UsageLimitSources)({}),
