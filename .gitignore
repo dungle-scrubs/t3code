@@ -38,6 +38,7 @@ apps/mobile/.android-cache/
 artifacts/app-store/screenshots/
 artifacts/mobile-e2e/
 artifacts/mobile-behavior/
+scripts/.e2e/
 .github/pr-assets/
 native/**/target/
 node_modules/
@@ -52,3 +53,4 @@ node_modules/
 # Machine-local agent instructions. They stay on disk and out of commits.
 AGENTS.local.md
 CLAUDE.local.md
+/packages/ssh/.ssh-launcher-test-*/
