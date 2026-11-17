@@ -258,7 +258,10 @@ root="$HOME/.local/share/t3-updates"
 staged="$root/$commit/staged"
 previous="$root/previous"
 marker="$root/installed-commit"
-running() { ps -axo comm= | grep -F -- "$app/Contents/" >/dev/null; }
+# Pro ran the app from the production worktree before installs moved to /Applications.
+legacy="$HOME/.local/share/worktrees/t3code/production/release/mac-arm64/T3 Code (Beta).app"
+running_at() { ps -axo comm= | grep -F -- "$1/Contents/" >/dev/null; }
+running() { running_at "$app" || running_at "$legacy"; }
 main_running() { ps -axo comm= | grep -F -x -- "$app/Contents/MacOS/T3 Code (Beta)" >/dev/null; }
 
 if [ "$(cat "$marker" 2>/dev/null)" = "$commit" ]; then echo "INSTALL_RESULT already"; exit 0; fi
@@ -269,7 +272,12 @@ codesign --verify --deep --strict "$new" || { echo "INSTALL_RESULT signature-inv
 codesign -dv "$new" 2>&1 | grep -F -- "Authority=$identity" >/dev/null || { echo "INSTALL_RESULT wrong-signer"; exit 1; }
 
 if running; then
-  osascript -e "tell application (POSIX file \"$app\" as text) to quit" >/dev/null 2>&1
+  # Telling an app that is not running to quit would launch it first.
+  for path in "$app" "$legacy"; do
+    if running_at "$path"; then
+      osascript -e "tell application (POSIX file \"$path\" as text) to quit" >/dev/null 2>&1
+    fi
+  done
   for _ in $(seq 1 120); do running || break; sleep 1; done
   if running; then echo "INSTALL_RESULT old-app-still-running"; exit 1; fi
 fi
