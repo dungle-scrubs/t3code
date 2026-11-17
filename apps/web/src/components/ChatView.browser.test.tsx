@@ -111,7 +111,7 @@ vi.mock(import("~/rpc/requestLatencyState"), async (original) => ({
 
 it("a machine chip stashed in one thread restores with its machine in another", async () => {
   const other = threadWithHistory("thread-stash-restore", 1);
-  const asking = threadWithQuestion("thread-stash-question", "Which file should change?");
+  const asking = threadWithQuestion("thread-stash-question", "Which file should change?", "live");
   using _environment = installFakeEnvironment([other, asking]);
   __setClientSettingsForTests({
     ...DEFAULT_CLIENT_SETTINGS,
@@ -168,7 +168,11 @@ it("a machine chip stashed in one thread restores with its machine in another", 
 
 it("a question that opens while a stashed file is checked keeps a machine stash", async () => {
   const thread = threadWithHistory("thread-stash-late-question", 1);
-  const asking = threadWithQuestion("thread-stash-late-question", "Which file should change?");
+  const asking = threadWithQuestion(
+    "thread-stash-late-question",
+    "Which file should change?",
+    "live",
+  );
   const [request] = asking.runtimeRequests ?? [];
   const question = asking.items.at(-1);
   if (!request || !question) throw new Error("threadWithQuestion has no question");

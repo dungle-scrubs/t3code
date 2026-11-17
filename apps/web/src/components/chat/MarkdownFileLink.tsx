@@ -10,7 +10,7 @@ import type { ContextMenuSource, EnvironmentId, ScopedThreadRef } from "@t3tools
 import { memo, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { FolderIcon } from "lucide-react";
 
-import { contextMenuSourceOf } from "../../contextMenuSource";
+import { contextMenuSourceOf, handleKeyboardContextMenu } from "../../contextMenuSource";
 import { readLocalApi } from "../../localApi";
 import { keyboardHintProps } from "../../lib/keyboardHints";
 import { cn } from "../../lib/utils";
@@ -353,6 +353,7 @@ export const MarkdownFileLink = memo(function MarkdownFileLink({
                 }
                 handleOpenInFilePreview();
               }}
+              onKeyDown={handleKeyboardContextMenu}
               onContextMenu={handleContextMenu}
             >
               <FileTagChipContent
@@ -379,6 +380,7 @@ export const MarkdownFileLink = memo(function MarkdownFileLink({
               data-markdown-copy={copyMarkdown}
               {...keyboardHintProps({ size: "compact" })}
               onClick={handleContextMenu}
+              onKeyDown={handleKeyboardContextMenu}
               onContextMenu={handleContextMenu}
             >
               <FileTagChipContent

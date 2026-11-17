@@ -14,9 +14,11 @@ import {
   ORCHESTRATION_V2_WS_METHODS,
   ProjectId,
   ProviderInstanceId,
+  ProviderSessionId,
   RunId,
   RuntimeRequestId,
   ServerConfig,
+  type ServerConfigStreamEvent,
   ThreadId,
   TurnItemId,
   WS_METHODS,
@@ -262,7 +264,11 @@ export function threadWithHistory(
 }
 
 /** A one-turn thread whose agent waits on an answer to one question. */
-export function threadWithQuestion(name: string, question: string): FakeThread {
+export function threadWithQuestion(
+  name: string,
+  question: string,
+  responseCapability: "message" | "live" = "message",
+): FakeThread {
   const thread = threadWithHistory(name, 1);
   const requestId = RuntimeRequestId.make(`${name}-request`);
   return {
@@ -273,7 +279,7 @@ export function threadWithQuestion(name: string, question: string): FakeThread {
         ...base(thread.id, RunId.make(`${name}-run-0`), `${name}-question`, 2),
         type: "user_input_request",
         requestId,
-        responseMode: "message",
+        ...(responseCapability === "message" ? { responseMode: "message" as const } : {}),
         questions: [
           {
             id: "choice",
@@ -294,7 +300,10 @@ export function threadWithQuestion(name: string, question: string): FakeThread {
         nativeRequestRef: null,
         kind: "user_input",
         status: "pending",
-        responseCapability: { type: "message" },
+        responseCapability:
+          responseCapability === "message"
+            ? { type: "message" }
+            : { type: "live", providerSessionId: ProviderSessionId.make(`${name}-session`) },
         createdAt: AT,
         resolvedAt: null,
       },
@@ -418,6 +427,7 @@ let pendingDispatches: Array<{
 let pendingAssetUrls: Array<Deferred.Deferred<AssetCreateUrlResult>> = [];
 let sequence = 1;
 let vcsStatusSubscriber: Queue.Queue<VcsStatusStreamEvent> | null = null;
+const serverConfigSubscribers = new Set<Queue.Queue<ServerConfigStreamEvent>>();
 
 const subscribe = <A>(first: ReadonlyArray<A>, register?: (queue: Queue.Queue<A>) => () => void) =>
   Stream.unwrap(
@@ -430,6 +440,17 @@ const subscribe = <A>(first: ReadonlyArray<A>, register?: (queue: Queue.Queue<A>
       }
       return Stream.fromQueue(queue);
     }),
+  );
+
+const subscribeServerConfig = () =>
+  subscribe<ServerConfigStreamEvent>(
+    [{ version: 1, type: "snapshot", config: serverConfig() }],
+    (queue) => {
+      serverConfigSubscribers.add(queue);
+      return () => {
+        serverConfigSubscribers.delete(queue);
+      };
+    },
   );
 
 const handlers: Record<string, (input: never) => unknown> = {
@@ -507,8 +528,7 @@ const handlers: Record<string, (input: never) => unknown> = {
         if (vcsStatusSubscriber === queue) vcsStatusSubscriber = null;
       };
     }),
-  [WS_METHODS.subscribeServerConfig]: () =>
-    subscribe([{ version: 1 as const, type: "snapshot" as const, config: serverConfig() }]),
+  [WS_METHODS.subscribeServerConfig]: subscribeServerConfig,
 };
 
 // Unanswered calls stay pending, like a server that has not replied yet.
@@ -524,8 +544,7 @@ const client = new Proxy(handlers, {
 const session: EnvironmentConnectionLease["session"] = {
   client: client as unknown as WsRpcProtocolClient,
   initialConfig: Effect.sync(serverConfig),
-  subscribeServerConfig: () =>
-    subscribe([{ version: 1 as const, type: "snapshot" as const, config: serverConfig() }]),
+  subscribeServerConfig,
   ready: Effect.void,
   probe: Effect.void,
   inboundFrames: Effect.succeed(0),
@@ -587,6 +606,9 @@ export function installFakeEnvironment(
     })),
   ];
   holdCommand = options?.holdCommand ?? (() => false);
+  for (const subscriber of serverConfigSubscribers) {
+    Queue.offerUnsafe(subscriber, { version: 1, type: "snapshot", config: serverConfig() });
+  }
   globalThis.fetch = async (input, init) => {
     const url = new URL(input instanceof Request ? input.url : String(input), window.location.href);
     if (url.origin !== window.location.origin) return realFetch(input, init);
