@@ -23,7 +23,7 @@ import { makeThreadProjectionFixture } from "../../test-fixtures";
 import type { ChatComposerHandle } from "./ChatComposer";
 import { ComposerPendingUserInputPanel } from "./ComposerPendingUserInputPanel";
 import { toastManager } from "../ui/toast";
-import { usePendingThreadRequests } from "./usePendingThreadRequests";
+import { usePendingThreadRequests, usePendingUserInputDraft } from "./usePendingThreadRequests";
 
 const threadRef = { environmentId: EnvironmentId.make("env"), threadId: ThreadId.make("thread") };
 
@@ -114,7 +114,7 @@ function useProbeRequests({
 }: ProbeProps) {
   const ownPromptRef = useRef("");
   const composerRef = useRef((composer ?? null) as ChatComposerHandle | null);
-  return usePendingThreadRequests({
+  const requests = usePendingThreadRequests({
     environmentId,
     activeThreadId: projection.thread.id,
     serverProjection: loading ? null : projection,
@@ -125,9 +125,16 @@ function useProbeRequests({
     composerRef,
     setThreadError: () => {},
   });
+  const draft = usePendingUserInputDraft({
+    environmentId,
+    activeThreadId: projection.thread.id,
+    activePendingUserInput: requests.activePendingUserInput,
+    supportsQuestionAttachments: false,
+  });
+  return { ...requests, ...draft };
 }
 
-let requests: ReturnType<typeof usePendingThreadRequests>;
+let requests: ReturnType<typeof useProbeRequests>;
 
 function PendingRequestsProbe(props: ProbeProps) {
   const state = useProbeRequests(props);

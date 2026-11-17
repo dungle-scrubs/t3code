@@ -75,7 +75,7 @@ const makePiSpawner = Effect.fnUntraced(function* (
               ? {
                   commands: [
                     personalSkill,
-                    ...(cwd === "/machine"
+                    ...(cwd?.endsWith("/pi-status-probe")
                       ? []
                       : [
                           {
@@ -170,15 +170,20 @@ it.layer(layerTest)("PiDriver workspace discovery", (it) => {
       );
       assert.equal(workspaceLaunch!.options.env?.PI_CODING_AGENT_DIR, "/isolated-pi");
       const machineLaunch = launches.find(
-        (launch) => launch.options.cwd === "/machine" && !launch.args.includes("--version"),
+        (launch) =>
+          launch.options.cwd?.endsWith("/pi-status-probe") && !launch.args.includes("--version"),
       );
       assert.isDefined(machineLaunch);
       assert.notInclude([...machineLaunch!.args], "--approve");
       // Discovery processes are stopped as soon as they answer, so neither may start Pi's
       // network refresh at launch.
-      for (const cwd of ["/machine", "/first"]) {
+      assert.isFalse(launches.some((launch) => launch.options.cwd === "/machine"));
+      for (const isLaunch of [
+        (cwd: string | undefined) => cwd?.endsWith("/pi-status-probe") === true,
+        (cwd: string | undefined) => cwd === "/first",
+      ]) {
         const discovery = launches.find(
-          (launch) => launch.options.cwd === cwd && launch.args.includes("--mode"),
+          (launch) => isLaunch(launch.options.cwd) && launch.args.includes("--mode"),
         );
         assert.deepEqual(
           discovery?.args.filter((arg) => arg === "--offline"),
