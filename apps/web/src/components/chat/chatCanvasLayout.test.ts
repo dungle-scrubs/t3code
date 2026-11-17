@@ -338,6 +338,25 @@ describe("workspace card beside chat", () => {
   it("keeps chat centered while the card fits beside it", () => {
     expect(withCard(1500).chat).toEqual({ left: 382, width: 736, insetStart: 0, insetEnd: 0 });
   });
+  it("gives rich blocks the room that is free on both sides of the lane", () => {
+    const open = (width: number) =>
+      resolveChatCanvasLayout({
+        container: { width, height: 900 },
+        maxChatWidth: 736,
+        preview: null,
+      });
+    expect(open(1500).richRoom).toBe(334);
+    expect(open(800).richRoom).toBe(0);
+    expect(withCard(1500).richRoom).toBe(1500 - 292 - 32 - (382 + 736));
+    const beside = (width: number, x: number) =>
+      resolveChatCanvasLayout({
+        container: { width, height: 900 },
+        maxChatWidth: 736,
+        preview: { ...preview, position: { x, y: 400 } },
+      }).richRoom;
+    expect(beside(2400, 1900)).toBe(1900 - 12 - (832 + 736));
+    expect(beside(1800, 1200)).toBe(0);
+  });
   it("narrows chat only after it reaches the left padding", () => {
     expect(withCard(1108).chat).toMatchObject({ left: 48, width: 736 });
     expect(withCard(1028).chat).toEqual({ left: 48, width: 656, insetStart: 0, insetEnd: 276 });

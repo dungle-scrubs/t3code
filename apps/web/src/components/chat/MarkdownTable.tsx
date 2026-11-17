@@ -34,36 +34,38 @@ export function MarkdownTable({ children, ...props }: ComponentProps<"table">) {
 
   return (
     <div ref={containerRef} className="chat-markdown-table-container">
-      <ScrollArea radius="none" chainVerticalScroll scrollFade className="w-full max-w-full">
-        <table {...props}>{children}</table>
-      </ScrollArea>
-      {/* Stays within the row's px-1: the chat lane clips sideways overflow. */}
-      <div className="mt-0.5 -mx-1 flex items-center justify-end select-none">
-        <Menu>
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <MenuTrigger
-                  render={
-                    <Button
-                      type="button"
-                      variant="ghost-muted"
-                      size="icon-xs"
-                      aria-label={copyLabel}
-                    />
-                  }
-                />
-              }
-            >
-              {copied ? <CheckIcon className="size-3" /> : <CopyIcon className="size-3" />}
-            </TooltipTrigger>
-            <TooltipPopup side="top">{copyLabel}</TooltipPopup>
-          </Tooltip>
-          <MenuPopup align="end">
-            <MenuItem onClick={() => handleCopy("markdown")}>Copy as Markdown</MenuItem>
-            <MenuItem onClick={() => handleCopy("csv")}>Copy as CSV</MenuItem>
-          </MenuPopup>
-        </Menu>
+      <div className="chat-markdown-table-frame">
+        <ScrollArea radius="none" chainVerticalScroll scrollFade className="w-full max-w-full">
+          <table {...props}>{children}</table>
+        </ScrollArea>
+        {/* Stays within the row's px-1: the timeline row clips sideways overflow. */}
+        <div className="mt-0.5 -mx-1 flex items-center justify-end select-none">
+          <Menu>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <MenuTrigger
+                    render={
+                      <Button
+                        type="button"
+                        variant="ghost-muted"
+                        size="icon-xs"
+                        aria-label={copyLabel}
+                      />
+                    }
+                  />
+                }
+              >
+                {copied ? <CheckIcon className="size-3" /> : <CopyIcon className="size-3" />}
+              </TooltipTrigger>
+              <TooltipPopup side="top">{copyLabel}</TooltipPopup>
+            </Tooltip>
+            <MenuPopup align="end">
+              <MenuItem onClick={() => handleCopy("markdown")}>Copy as Markdown</MenuItem>
+              <MenuItem onClick={() => handleCopy("csv")}>Copy as CSV</MenuItem>
+            </MenuPopup>
+          </Menu>
+        </div>
       </div>
     </div>
   );

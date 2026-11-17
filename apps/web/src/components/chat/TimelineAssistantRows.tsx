@@ -56,6 +56,7 @@ export function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind
             listRef={ctx.listRef}
           >
             <ChatMarkdown
+              className="chat-markdown-breakout"
               text={messageText}
               renderInsights
               cwd={ctx.markdownCwd}
@@ -330,7 +331,7 @@ export function HtmlRenderTimelineRow({
     return <div className="min-w-0 px-1">{ctx.renderHtmlRender(row)}</div>;
   }
   return (
-    <div className="min-w-0 px-1">
+    <div className="chat-rich-breakout min-w-0 px-1">
       <HtmlRenderFrame
         key={row.htmlRender.attachmentId}
         environmentId={ctx.activeThreadEnvironmentId}
@@ -347,7 +348,7 @@ export function McpAppTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "
   const { awaitingUser } = use(TimelineRowActivityCtx);
 
   return (
-    <div className="min-w-0 px-1">
+    <div className="chat-rich-breakout min-w-0 px-1">
       <McpAppFrame
         key={row.mcpApp.attachmentId}
         environmentId={ctx.activeThreadEnvironmentId}

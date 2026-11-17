@@ -129,6 +129,8 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   --workspace-titlebar-control-gap: 0.75rem;
   --workspace-titlebar-scroll-fade-height: 1.5rem;
   --chat-content-max-width: 46rem;
+  /* Stays inside the widest width HTML render heights are measured at (1144px). */
+  --chat-rich-content-max-width: 71.5rem;
   --thread-details-panel-width: 17.5rem;
   /* The prompt on phones: iOS zooms into any input under 16px on focus. */
   --font-size-prompt-touch: max(var(--font-size-prompt, 1rem), 16px);
@@ -2306,6 +2308,34 @@ code {
 /* Formula cells keep their natural width and scroll with the table. */
 .chat-markdown :is(th, td):has([data-markdown-math]) {
   max-width: none;
+}
+
+/* A table or frame in an assistant reply may outgrow the prose lane, centred
+   on it, into the room ChatCanvas reports free on both sides. */
+.chat-rich-breakout,
+.chat-markdown-breakout > .chat-markdown-table-container > .chat-markdown-table-frame {
+  --chat-rich-width: min(
+    max(100%, var(--chat-rich-content-max-width)),
+    calc(100% + 2 * var(--chat-rich-room, 0px))
+  );
+}
+
+.chat-rich-breakout {
+  width: var(--chat-rich-width);
+  margin-inline: calc((100% - var(--chat-rich-width)) / 2);
+}
+
+.chat-markdown-breakout > .chat-markdown-table-container {
+  display: flex;
+  justify-content: center;
+}
+
+/* Sized by its columns, so a table that fits the lane stays lane-wide. */
+.chat-markdown-breakout > .chat-markdown-table-container > .chat-markdown-table-frame {
+  flex: none;
+  width: max-content;
+  min-width: 100%;
+  max-width: var(--chat-rich-width);
 }
 
 /* Keep overflow discoverable when the edge fade falls between columns. */

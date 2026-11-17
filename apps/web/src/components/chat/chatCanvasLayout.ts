@@ -176,5 +176,13 @@ export function resolveChatCanvasLayout({
     frame.x + frame.width > detailsCard.left &&
     frame.y < detailsCard.bottom,
   );
-  return { chat, frame, overlapsChat, overlapsDetailsCard };
+  // Space a block wider than the lane may take on each side, kept equal so it stays centred.
+  const chatRight = chat.left + chat.width;
+  const cardLimit = detailsCard
+    ? detailsCard.left - DETAILS_CARD_CLEARANCE
+    : container.width - padding;
+  const roomEnd =
+    Math.min(cardLimit, frame && !overlapsChat ? frame.x - GAP : cardLimit) - chatRight;
+  const richRoom = Math.max(0, Math.min(chat.left - padding, roomEnd));
+  return { chat, frame, overlapsChat, overlapsDetailsCard, richRoom };
 }

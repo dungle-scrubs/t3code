@@ -1346,16 +1346,12 @@ const ConversationTimeline = memo(function ConversationTimeline({
   const renderItem = ({ item }: { item: MessagesTimelineRow }) => (
     <TimelineRowCtx value={sharedState}>
       <div
-        className="messages-timeline-row-frame"
+        className="messages-timeline-row-frame overflow-x-clip"
         onPlayCapture={(event) => onAudioPlaybackChange(item.id, event)}
         onPauseCapture={(event) => onAudioPlaybackChange(item.id, event)}
         onEndedCapture={(event) => onAudioPlaybackChange(item.id, event)}
       >
-        <div
-          ref={observeLaneWidth}
-          className="chat-content-lane overflow-x-clip"
-          data-timeline-root="true"
-        >
+        <div ref={observeLaneWidth} className="chat-content-lane" data-timeline-root="true">
           <AudioPreviewUnmountContext value={onAudioUnmount}>
             <TimelineRowContent row={item} />
           </AudioPreviewUnmountContext>
@@ -1372,8 +1368,8 @@ const ConversationTimeline = memo(function ConversationTimeline({
       {footer}
       {unmatchedPendingApprovals.length > 0 ? (
         <TimelineRowCtx value={sharedState}>
-          <div className="messages-timeline-row-frame">
-            <div className="chat-content-lane overflow-x-clip" data-timeline-root="true">
+          <div className="messages-timeline-row-frame overflow-x-clip">
+            <div className="chat-content-lane" data-timeline-root="true">
               <WorkLogBlock>
                 {unmatchedPendingApprovals.map((approval) => (
                   <TimelinePendingApprovalRow key={approval.requestId} approval={approval} />
