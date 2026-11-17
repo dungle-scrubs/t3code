@@ -1,3 +1,4 @@
+// @effect-diagnostics nodeBuiltinImport:off globalDate:off globalConsole:off extendsNativeError:off - An unattended host job that drives git, ssh and codesign directly.
 // Nightly fork sync, run by fleetq on the mini: merge upstream/main into
 // production, typecheck, build, sign with the Developer ID, push, and install
 // on every machine. A merge conflict or failed check changes no machine and
@@ -19,6 +20,17 @@ const LOCAL_MACHINE = process.env.FORK_SYNC_LOCAL ?? "mini";
 const MACHINES = (process.env.FORK_SYNC_MACHINES ?? "air,pro,mini").split(",").map((m) => m.trim());
 const DRY_RUN = process.argv.includes("--dry-run");
 const SKIP_INSTALL = process.argv.includes("--skip-install");
+const SSH_OPTIONS = [
+  "-o",
+  "BatchMode=yes",
+  "-o",
+  "ConnectTimeout=10",
+  "-o",
+  "ServerAliveInterval=15",
+  "-o",
+  "ServerAliveCountMax=4",
+];
+const MINUTE = 60_000;
 
 // The upstream signed build needs a passkey provisioning profile we do not
 // have; these are its entitlements minus the profile-bound ones.
@@ -36,7 +48,12 @@ const ENTITLEMENTS = `<?xml version="1.0" encoding="UTF-8"?>
 `;
 
 interface State {
-  lastHandoff?: { reason: string; originMain: string; upstreamMain: string };
+  lastHandoffKey?: string;
+}
+
+interface Refs {
+  originMain: string;
+  upstreamMain: string;
 }
 
 type Outcome =
@@ -67,7 +84,13 @@ function run(
   step: string,
   command: string,
   args: readonly string[],
-  options: { cwd?: string; env?: NodeJS.ProcessEnv; input?: string; allowFail?: boolean } = {},
+  options: {
+    cwd?: string;
+    env?: NodeJS.ProcessEnv;
+    input?: string;
+    allowFail?: boolean;
+    timeoutMs?: number;
+  } = {},
 ): { status: number; stdout: string } {
   NodeFS.writeSync(logFd, `$ ${command} ${args.join(" ")}\n`);
   const result = NodeChildProcess.spawnSync(command, args, {
@@ -76,12 +99,16 @@ function run(
     input: options.input,
     encoding: "utf8",
     maxBuffer: 256 * 1024 * 1024,
+    timeout: options.timeoutMs ?? 10 * MINUTE,
+    killSignal: "SIGKILL",
   });
   const out = `${result.stdout ?? ""}${result.stderr ?? ""}`;
   NodeFS.writeSync(logFd, out);
+  if (result.error) NodeFS.writeSync(logFd, `${String(result.error)}\n`);
   const status = result.status ?? 1;
   if (status !== 0 && !options.allowFail) {
-    throw new StepFailed(step, `${command} ${args.join(" ")} exited ${String(status)}`);
+    const why = result.error ? String(result.error) : `exited ${String(status)}`;
+    throw new StepFailed(step, `${command} ${args.join(" ")}: ${why}`);
   }
   return { status, stdout: (result.stdout ?? "").trim() };
 }
@@ -105,16 +132,23 @@ function writeState(state: State) {
   NodeFS.writeFileSync(STATE_FILE, `${JSON.stringify(state, null, 2)}\n`);
 }
 
-function prepareCheckout(): { originMain: string; upstreamMain: string } {
+function fetchRefs(): Refs {
   git("fetch", "fetch", "--quiet", "origin", "main");
   git("fetch", "fetch", "--quiet", "upstream", "main");
+  return {
+    originMain: git("fetch", "rev-parse", "origin/main"),
+    upstreamMain: git("fetch", "rev-parse", "upstream/main"),
+  };
+}
+
+/** Leaves production at origin/main and returns that commit, or throws without touching it. */
+function prepareCheckout(originMain: string): string {
   if (git("checkout", "status", "--porcelain").length > 0) {
     throw new StepFailed("checkout", `${REPO} has uncommitted changes`);
   }
   if (git("checkout", "rev-parse", "--abbrev-ref", "HEAD") !== "production") {
     throw new StepFailed("checkout", `${REPO} is not on the production branch`);
   }
-  const originMain = git("checkout", "rev-parse", "origin/main");
   const head = git("checkout", "rev-parse", "HEAD");
   if (head !== originMain) {
     const behind = run("checkout", "git", ["merge-base", "--is-ancestor", "HEAD", "origin/main"], {
@@ -125,7 +159,7 @@ function prepareCheckout(): { originMain: string; upstreamMain: string } {
     }
     git("checkout", "merge", "--ff-only", "--quiet", "origin/main");
   }
-  return { originMain, upstreamMain: git("checkout", "rev-parse", "upstream/main") };
+  return originMain;
 }
 
 function mergeUpstream(): boolean {
@@ -154,9 +188,13 @@ function buildEnv(): NodeJS.ProcessEnv {
 
 function vp(step: string, ...args: string[]) {
   const bin = NodePath.join(REPO, "node_modules/.bin/vp");
-  if (!NodeFS.existsSync(bin))
-    run(step, "pnpm", ["install", "--frozen-lockfile"], { env: buildEnv() });
-  run(step, bin, args, { env: buildEnv() });
+  if (!NodeFS.existsSync(bin)) {
+    run(step, "pnpm", ["install", "--frozen-lockfile"], {
+      env: buildEnv(),
+      timeoutMs: 20 * MINUTE,
+    });
+  }
+  run(step, bin, args, { env: buildEnv(), timeoutMs: 30 * MINUTE });
 }
 
 function findApp(dir: string): string | undefined {
@@ -198,7 +236,7 @@ async function buildSigned(commit: string): Promise<string> {
       "--output-dir",
       outDir,
     ],
-    { env: buildEnv() },
+    { env: buildEnv(), timeoutMs: 45 * MINUTE },
   );
 
   let app = findApp(outDir);
@@ -214,9 +252,9 @@ async function buildSigned(commit: string): Promise<string> {
   say("signing with the Developer ID");
   const entitlements = NodePath.join(buildDir, "entitlements.plist");
   NodeFS.writeFileSync(entitlements, ENTITLEMENTS);
-  const signDir = fs
-    .readdirSync(NodePath.join(REPO, "node_modules/.pnpm"))
-    .find((name) => name.startsWith("@electron+osx-sign@2."));
+  const signDir = NodeFS.readdirSync(NodePath.join(REPO, "node_modules/.pnpm")).find((name) =>
+    name.startsWith("@electron+osx-sign@2."),
+  );
   if (!signDir) throw new StepFailed("sign", "@electron/osx-sign 2.x is not installed");
   const osxSign = (await import(
     NodePath.join(
@@ -232,12 +270,13 @@ async function buildSigned(commit: string): Promise<string> {
       identity: IDENTITY,
       platform: "darwin",
       preAutoEntitlements: false,
+      batchCodesignCalls: true,
       optionsForFile: () => ({ hardenedRuntime: true, entitlements }),
     });
   } catch (error) {
     throw new StepFailed("sign", String(error));
   }
-  run("sign", "codesign", ["--verify", "--deep", "--strict", app]);
+  run("sign", "codesign", ["--verify", "--deep", "--strict", app], { timeoutMs: 20 * MINUTE });
   const details = NodeChildProcess.spawnSync("codesign", ["-dv", app], { encoding: "utf8" }).stderr;
   if (!details.includes(`Authority=${IDENTITY}`)) {
     throw new StepFailed("sign", `${APP_NAME} is not signed by ${IDENTITY}`);
@@ -245,7 +284,16 @@ async function buildSigned(commit: string): Promise<string> {
   run("sign", "ditto", ["-c", "-k", "--sequesterRsrc", "--keepParent", app, zipPath]);
   NodeFS.rmSync(outDir, { recursive: true, force: true });
   NodeFS.rmSync(NodePath.join(buildDir, "unpacked"), { recursive: true, force: true });
+  pruneBuilds(commit);
   return zipPath;
+}
+
+function pruneBuilds(keep: string) {
+  const builds = NodePath.join(STATE_DIR, "builds");
+  for (const entry of NodeFS.readdirSync(builds)) {
+    if (entry !== keep)
+      NodeFS.rmSync(NodePath.join(builds, entry), { recursive: true, force: true });
+  }
 }
 
 // Runs on the target Mac. Matches processes by the literal bundle path: the
@@ -271,7 +319,9 @@ new="$staged/T3 Code (Beta).app"
 codesign --verify --deep --strict "$new" || { echo "INSTALL_RESULT signature-invalid"; exit 1; }
 codesign -dv "$new" 2>&1 | grep -F -- "Authority=$identity" >/dev/null || { echo "INSTALL_RESULT wrong-signer"; exit 1; }
 
+was_running=0
 if running; then
+  was_running=1
   # Telling an app that is not running to quit would launch it first.
   for path in "$app" "$legacy"; do
     if running_at "$path"; then
@@ -282,16 +332,25 @@ if running; then
   if running; then echo "INSTALL_RESULT old-app-still-running"; exit 1; fi
 fi
 
+# Puts the old app back, and reopens it only if it was running before.
+restore() {
+  if [ -e "$previous/T3 Code (Beta).app" ]; then
+    mv "$previous/T3 Code (Beta).app" "$app" || return 1
+    if [ "$was_running" = 1 ]; then open "$app"; fi
+  fi
+  rm -rf "$staged"
+}
+
 rm -rf "$previous/T3 Code (Beta).app"
 if [ -e "$app" ]; then mv "$app" "$previous/" || { echo "INSTALL_RESULT move-old-failed"; exit 1; }; fi
-mv "$new" "$app" || { mv "$previous/T3 Code (Beta).app" "$app"; open "$app"; echo "INSTALL_RESULT move-new-failed"; exit 1; }
+mv "$new" "$app" || { restore; echo "INSTALL_RESULT move-new-failed"; exit 1; }
 open "$app"
 for _ in $(seq 1 60); do main_running && break; sleep 1; done
 sleep 15
 if ! main_running; then
   rm -rf "$root/$commit/failed.app"; mv "$app" "$root/$commit/failed.app"
-  mv "$previous/T3 Code (Beta).app" "$app"; open "$app"
-  echo "INSTALL_RESULT new-app-did-not-start-rolled-back"; exit 1
+  if restore; then echo "INSTALL_RESULT new-app-did-not-start-rolled-back"; else echo "INSTALL_RESULT new-app-did-not-start-restore-failed"; fi
+  exit 1
 fi
 echo "$commit" > "$marker"
 rm -rf "$root/$commit"
@@ -305,28 +364,17 @@ function installOn(machine: string, commit: string, zipPath: string): string {
     const reach = run(
       "install",
       "ssh",
-      [
-        "-o",
-        "BatchMode=yes",
-        "-o",
-        "ConnectTimeout=10",
-        machine,
-        "mkdir -p ~/.local/share/t3-updates",
-      ],
+      [...SSH_OPTIONS, machine, "mkdir -p ~/.local/share/t3-updates"],
       {
         allowFail: true,
       },
     );
     if (reach.status !== 0) return "unreachable";
     zip = `.local/share/t3-updates/${commit}.zip`;
-    const copied = run(
-      "install",
-      "scp",
-      ["-q", "-o", "BatchMode=yes", zipPath, `${machine}:${zip}`],
-      {
-        allowFail: true,
-      },
-    );
+    const copied = run("install", "scp", ["-q", ...SSH_OPTIONS, zipPath, `${machine}:${zip}`], {
+      allowFail: true,
+      timeoutMs: 20 * MINUTE,
+    });
     if (copied.status !== 0) return "copy-failed";
     zip = `$HOME/${zip}`;
   }
@@ -336,25 +384,32 @@ function installOn(machine: string, commit: string, zipPath: string): string {
     : run(
         "install",
         "ssh",
-        ["-o", "BatchMode=yes", machine, `bash -s -- ${commit} "${zip}" '${IDENTITY}'`],
+        [...SSH_OPTIONS, machine, `bash -s -- ${commit} "${zip}" '${IDENTITY}'`],
         { input: INSTALL_SCRIPT, allowFail: true },
       );
   const marker = result.stdout.split("\n").find((line) => line.startsWith("INSTALL_RESULT "));
   if (!local)
-    run("install", "ssh", ["-o", "BatchMode=yes", machine, `rm -f "${zip}"`], { allowFail: true });
+    run("install", "ssh", [...SSH_OPTIONS, machine, `rm -f "${zip}"`], { allowFail: true });
   return marker
     ? marker.slice("INSTALL_RESULT ".length)
     : `no-result (exit ${String(result.status)})`;
 }
 
-function handoff(reason: string, step: string, refs: { originMain: string; upstreamMain: string }) {
+function handoff(step: string, reason: string, key: string, refs: Refs) {
   const state = readState();
-  const last = state.lastHandoff;
-  if (last && last.reason === step && last.originMain === refs.originMain) {
-    say(`origin/main has not moved since the last ${step} handoff; not opening another thread`);
+  if (state.lastHandoffKey === key) {
+    say(`same failure as the last handoff (${key}); not opening another thread`);
     return;
   }
-  const message = `The nightly fork sync stopped at the ${step} step and changed no machine.
+  const what =
+    step === "install"
+      ? "The nightly fork sync built and pushed production, but installing it failed on some machines. Machines that report installed or already are fine; a failed machine was rolled back where it could be."
+      : `The nightly fork sync stopped at the ${step} step. It pushed nothing and changed no machine.`;
+  const todo =
+    step === "install"
+      ? "Find out why the install failed on each failed machine from its INSTALL_RESULT in the log, and fix the cause. The next nightly run retries every machine that is not on the new commit."
+      : "Fix what stopped the sync in that checkout: for a conflict, merge upstream/main into production and resolve it, keeping every fork commit's behavior; upstream wins only where the fork has no intent of its own. Leave the checkout clean on production. Run `vp run typecheck`, commit, and push with `git push origin production:main`. Do not build or install the app: the next nightly run does that.";
+  const message = `${what}
 
 ${reason}
 
@@ -363,7 +418,7 @@ origin/main: ${refs.originMain}
 upstream/main: ${refs.upstreamMain}
 Full log: ${logPath}
 
-Merge upstream/main into production in that checkout and fix what stopped the sync. Keep every fork commit's behavior; upstream wins only where the fork has no intent of its own. Then run \`vp run typecheck\`, commit, and push with \`git push origin production:main\`. Do not build or install the app: the next nightly run does that.
+${todo}
 
 Last log lines:
 \`\`\`
@@ -373,28 +428,31 @@ ${logTail(60)}
     say(`dry run: would open a handoff thread:\n${message}`);
     return;
   }
-  const result = run(
-    "handoff",
-    T3_CLI,
-    ["thread", "start", "--title", `Fork sync stopped: ${step}`, REPO, "-"],
-    {
-      input: message,
-      allowFail: true,
-    },
-  );
-  if (result.status !== 0) {
-    say(`could not open the handoff thread (exit ${String(result.status)}); see ${logPath}`);
-    return;
+  // The mini's own install may have just restarted the T3 server.
+  for (let attempt = 1; attempt <= 6; attempt += 1) {
+    const result = run(
+      "handoff",
+      T3_CLI,
+      ["thread", "start", "--title", `Fork sync stopped: ${step}`, REPO, "-"],
+      { input: message, allowFail: true, timeoutMs: 2 * MINUTE },
+    );
+    if (result.status === 0) {
+      say(`opened handoff thread ${result.stdout}`);
+      writeState({ ...state, lastHandoffKey: key });
+      return;
+    }
+    say(`could not open the handoff thread (attempt ${String(attempt)})`);
+    if (attempt < 6) run("handoff", "sleep", ["30"], { allowFail: true });
   }
-  say(`opened handoff thread ${result.stdout}`);
-  writeState({ ...state, lastHandoff: { reason: step, ...refs } });
 }
 
 async function main(): Promise<Outcome> {
   say(`fork sync ${runId} in ${REPO}${DRY_RUN ? " (dry run)" : ""}`);
-  const refs = prepareCheckout();
-  const commitBefore = git("checkout", "rev-parse", "HEAD");
+  let refs: Refs = { originMain: "unknown", upstreamMain: "unknown" };
+  let commitBefore: string | undefined;
   try {
+    refs = fetchRefs();
+    commitBefore = prepareCheckout(refs.originMain);
     const merged = mergeUpstream();
     const commit = git("merge", "rev-parse", "HEAD");
     say(
@@ -424,32 +482,48 @@ async function main(): Promise<Outcome> {
       results[machine] = installOn(machine, commit, zipPath);
       say(`${machine}: ${results[machine]}`);
     }
+    const failed = Object.entries(results).filter(
+      ([, result]) => !["installed", "already", "unreachable"].includes(result),
+    );
+    if (failed.length > 0) {
+      handoff(
+        "install",
+        `Installing ${commit} failed: ${JSON.stringify(results)}`,
+        `install:${commit}:${failed.map(([machine]) => machine).join(",")}`,
+        { ...refs, originMain: commit },
+      );
+      return { kind: "handoff", reason: "install" };
+    }
     return { kind: "installed", commit, results };
   } catch (error) {
-    if (!(error instanceof StepFailed)) throw error;
-    say(`${error.step} failed: ${error.message}`);
-    const head = git("checkout", "rev-parse", "HEAD");
-    let reason = error.message;
-    if (head !== commitBefore) {
-      const branch = `fork-sync/failed-${runId}`;
-      git("checkout", "branch", "--force", branch, head);
-      git("checkout", "reset", "--hard", "--quiet", commitBefore);
-      reason += `\n\nThe merged state that failed is on local branch ${branch}.`;
+    const step = error instanceof StepFailed ? error.step : "internal";
+    let reason =
+      error instanceof StepFailed
+        ? error.message
+        : String(error instanceof Error ? (error.stack ?? error) : error);
+    say(`${step} failed: ${reason}`);
+    if (commitBefore !== undefined) {
+      // Never leave production off origin/main: every later night would stop at the checkout.
+      run("cleanup", "git", ["merge", "--abort"], { allowFail: true });
+      const head = run("cleanup", "git", ["rev-parse", "HEAD"], { allowFail: true }).stdout;
+      if (head !== commitBefore) {
+        const branch = `fork-sync/failed-${runId}`;
+        const saved = run("cleanup", "git", ["branch", "--force", branch, head], {
+          allowFail: true,
+        });
+        if (saved.status === 0)
+          reason += `\n\nThe merged state that failed is on local branch ${branch}.`;
+      }
+      const reset = run("cleanup", "git", ["reset", "--hard", "--quiet", commitBefore], {
+        allowFail: true,
+      });
+      if (reset.status !== 0) reason += "\n\nResetting production to origin/main failed too.";
     }
-    handoff(reason, error.step, refs);
-    return { kind: "handoff", reason: error.step };
+    handoff(step, reason, `${step}:${refs.originMain}`, refs);
+    return { kind: "handoff", reason: step };
   }
 }
 
 const outcome = await main();
-const installFailed =
-  outcome.kind === "installed" &&
-  Object.values(outcome.results).some((r) => !["installed", "already", "unreachable"].includes(r));
-if (outcome.kind === "installed" && installFailed) {
-  handoff(`Installing ${outcome.commit} failed: ${JSON.stringify(outcome.results)}`, "install", {
-    originMain: outcome.commit,
-    upstreamMain: git("checkout", "rev-parse", "upstream/main"),
-  });
-}
 say(`done: ${JSON.stringify(outcome)} log ${logPath}`);
-process.exit(outcome.kind === "handoff" || installFailed ? 1 : 0);
+process.exit(outcome.kind === "handoff" ? 1 : 0);
