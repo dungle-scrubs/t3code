@@ -320,6 +320,8 @@ codesign --verify --deep --strict "$new" || { echo "INSTALL_RESULT signature-inv
 codesign -dv "$new" 2>&1 | grep -F -- "Authority=$identity" >/dev/null || { echo "INSTALL_RESULT wrong-signer"; exit 1; }
 
 was_running=0
+legacy_was_running=0
+if running_at "$legacy"; then legacy_was_running=1; fi
 if running; then
   was_running=1
   # Telling an app that is not running to quit would launch it first.
@@ -337,6 +339,8 @@ restore() {
   if [ -e "$previous/T3 Code (Beta).app" ]; then
     mv "$previous/T3 Code (Beta).app" "$app" || return 1
     if [ "$was_running" = 1 ]; then open "$app"; fi
+  elif [ "$legacy_was_running" = 1 ]; then
+    open "$legacy"
   fi
   rm -rf "$staged"
 }
