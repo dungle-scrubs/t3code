@@ -1,4 +1,5 @@
 import { useRouter } from "@tanstack/react-router";
+import { T, useGT } from "gt-react";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { createPortal, flushSync } from "react-dom";
 
@@ -20,8 +21,6 @@ import { readPullRequestListPreferences } from "./pullRequest/pullRequestListPre
 import { Kbd } from "./ui/kbd";
 import { toastManager } from "./ui/toast";
 
-const ISSUES_UNAVAILABLE = "No GitHub repository";
-
 const IDLE_STATE: KeyboardHintsState = { active: false, prefix: "", targets: [] };
 
 // Install the dispatcher before component effects attach other window listeners.
@@ -34,6 +33,7 @@ registerCommands({})();
  * press is answered in the same tick, before any surface can act on it.
  */
 export function KeyboardHints() {
+  const gt = useGT();
   const [state, setState] = useState<KeyboardHintsState>(IDLE_STATE);
   const controllerRef = useRef<KeyboardHintsController | undefined>(undefined);
   const router = useRouter();
@@ -47,7 +47,7 @@ export function KeyboardHints() {
       const threadRef = target.threadRef;
       return () => {
         void openLink(url, { target: "app", threadRef }).catch(() => {
-          toastManager.add({ type: "error", title: "Unable to open GitHub issues" });
+          toastManager.add({ type: "error", title: gt("Unable to open GitHub issues") });
         });
       };
     }
@@ -59,12 +59,14 @@ export function KeyboardHints() {
           search: readPullRequestListPreferences(),
         })
         .catch(() => {
-          toastManager.add({ type: "error", title: "Unable to open pull requests" });
+          toastManager.add({ type: "error", title: gt("Unable to open pull requests") });
         });
     };
   });
   const commandDetail =
-    target && githubIssuesUrl(target.repositoryIdentity) ? target.projectName : ISSUES_UNAVAILABLE;
+    target && githubIssuesUrl(target.repositoryIdentity)
+      ? target.projectName
+      : gt("No GitHub repository");
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- keeps the hint controller registered with the shortcut dispatcher for as long as the component is mounted
   useEffect(() => {
@@ -120,22 +122,29 @@ function HintCommandGuide({
   readonly detail: string;
   readonly pullRequestsSupported: boolean;
 }) {
+  const gt = useGT();
   return (
     <aside
-      aria-label="Hint commands"
+      aria-label={gt("Hint commands")}
       style={position}
       className="fixed right-4 bottom-4 flex w-max max-w-64 flex-col gap-2 rounded-lg border border-border bg-popover px-2.5 py-2 text-popover-foreground text-xs shadow-md"
     >
       <div className="flex min-w-0 items-center gap-2">
         <Kbd>{KEYBOARD_HINT_ISSUES_KEY}</Kbd>
-        <span>GitHub issues</span>
+        <span>
+          <T>GitHub issues</T>
+        </span>
         <span className="min-w-0 truncate text-muted-foreground">{detail}</span>
       </div>
       <div className="flex min-w-0 items-center gap-2">
         <Kbd>{KEYBOARD_HINT_PULL_REQUESTS_KEY}</Kbd>
-        <span>Pull requests</span>
+        <span>
+          <T>Pull requests</T>
+        </span>
         {pullRequestsSupported ? null : (
-          <span className="min-w-0 truncate text-muted-foreground">Unavailable</span>
+          <span className="min-w-0 truncate text-muted-foreground">
+            <T>Unavailable</T>
+          </span>
         )}
       </div>
     </aside>
