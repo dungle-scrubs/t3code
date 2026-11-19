@@ -2,7 +2,7 @@
 // Nightly fork sync, run by fleetq on the mini: merge upstream/main into
 // production, typecheck, build, sign with the Developer ID, push, and install
 // on every machine. A merge conflict or failed check changes no machine and
-// opens a T3 thread for an agent.
+// hands off to graybox, which reports to the Owner on Telegram.
 import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
@@ -15,7 +15,9 @@ const STATE_DIR = NodePath.join(HOME, ".local/state/t3code-fork-sync");
 const STATE_FILE = NodePath.join(STATE_DIR, "state.json");
 const APP_NAME = "T3 Code (Beta).app";
 const IDENTITY = "Developer ID Application: Kevin Frilot (LBA643YFCL)";
-const T3_CLI = NodePath.join(HOME, ".t3/bin/t3");
+const GRAYBOX = NodePath.join(HOME, "dev/grayboxV2/bin/graybox");
+// Failures a code change can fix: graybox resolves, verifies and pushes these itself.
+const PUSH_STEPS = new Set(["merge", "deps", "typecheck", "build"]);
 const LOCAL_MACHINE = process.env.FORK_SYNC_LOCAL ?? "mini";
 const MACHINES = (process.env.FORK_SYNC_MACHINES ?? "air,pro,mini").split(",").map((m) => m.trim());
 const DRY_RUN = process.argv.includes("--dry-run");
@@ -218,7 +220,7 @@ async function buildSigned(commit: string): Promise<string> {
   NodeFS.mkdirSync(outDir, { recursive: true });
 
   say("installing dependencies");
-  vp("install", "i");
+  vp("deps", "i");
   say("typechecking");
   vp("typecheck", "run", "typecheck");
   say("building the desktop app");
@@ -402,9 +404,10 @@ function installOn(machine: string, commit: string, zipPath: string): string {
 function handoff(step: string, reason: string, key: string, refs: Refs) {
   const state = readState();
   if (state.lastHandoffKey === key) {
-    say(`same failure as the last handoff (${key}); not opening another thread`);
+    say(`same failure as the last handoff (${key}); not handing off again`);
     return;
   }
+  const push = PUSH_STEPS.has(step) && refs.upstreamMain !== "unknown";
   const what =
     step === "install"
       ? "The nightly fork sync built and pushed production, but installing it failed on some machines. Machines that report installed or already are fine; a failed machine was rolled back where it could be."
@@ -412,10 +415,13 @@ function handoff(step: string, reason: string, key: string, refs: Refs) {
   const todo =
     step === "install"
       ? "Find out why the install failed on each failed machine from its INSTALL_RESULT in the log, and fix the cause. The next nightly run retries every machine that is not on the new commit."
-      : "Fix what stopped the sync in that checkout: for a conflict, merge upstream/main into production and resolve it, keeping every fork commit's behavior; upstream wins only where the fork has no intent of its own. Leave the checkout clean on production. Run `vp run typecheck`, commit, and push with `git push origin production:main`. Do not build or install the app: the next nightly run does that.";
+      : push
+        ? `Merge upstream/main (${refs.upstreamMain}) into origin/main (${refs.originMain}) in the Ticket's worktree and resolve every conflict, keeping each fork commit's behavior; upstream wins only where the fork has no intent of its own. If a fork-sync/failed-* branch is named above, it holds the merged state that failed later; start from it. In the worktree run \`vp i\`, then \`vp run typecheck\` (through \`mise exec node@26 --\` if the default node is refused); both must pass and belong in the Ticket's checks. Commit the result there. Do not push, build or install the app, and do not touch the checkout below: graybox pushes the verified candidate to origin/main, and the next nightly run builds and installs it.`
+        : "Find out what stopped the sync from the log and fix the cause. If it is in the fork's code, specify the fix as a commit on origin/main; otherwise say what the Owner must do.";
+  // graybox refuses a request over 20,000 characters; the log tail below takes up to 8,000.
   const message = `${what}
 
-${reason}
+${reason.length > 6_000 ? `${reason.slice(0, 6_000)}\n[cut; the full reason is in the log]` : reason}
 
 Checkout: ${REPO} (branch production, tracks origin/main on dungle-scrubs/t3code).
 origin/main: ${refs.originMain}
@@ -426,27 +432,33 @@ ${todo}
 
 Last log lines:
 \`\`\`
-${logTail(60)}
+${logTail(60).slice(-8_000)}
 \`\`\``;
   if (DRY_RUN) {
-    say(`dry run: would open a handoff thread:\n${message}`);
+    say(`dry run: would hand off to graybox${push ? " with a push target" : ""}:\n${message}`);
     return;
   }
-  // The mini's own install may have just restarted the T3 server.
-  for (let attempt = 1; attempt <= 6; attempt += 1) {
-    const result = run(
+  const result = run(
+    "handoff",
+    GRAYBOX,
+    [
       "handoff",
-      T3_CLI,
-      ["thread", "start", "--title", `Fork sync stopped: ${step}`, REPO, "-"],
-      { input: message, allowFail: true, timeoutMs: 2 * MINUTE },
+      "--project",
+      REPO,
+      "--title",
+      `Fork sync stopped: ${step}`,
+      ...(push ? ["--push", "origin/main", "--contains", refs.upstreamMain] : []),
+    ],
+    { input: message, allowFail: true, timeoutMs: MINUTE },
+  );
+  if (result.status === 0) {
+    say(`handed off to graybox: ${result.stdout}`);
+    writeState({ ...state, lastHandoffKey: key });
+  } else {
+    // The key stays unset, so the next night hands off again.
+    say(
+      `could not hand off to graybox (exit ${String(result.status)}); its output is in the log above`,
     );
-    if (result.status === 0) {
-      say(`opened handoff thread ${result.stdout}`);
-      writeState({ ...state, lastHandoffKey: key });
-      return;
-    }
-    say(`could not open the handoff thread (attempt ${String(attempt)})`);
-    if (attempt < 6) run("handoff", "sleep", ["30"], { allowFail: true });
   }
 }
 
