@@ -180,6 +180,10 @@ function mergeUpstream(): boolean {
 
 function buildEnv(): NodeJS.ProcessEnv {
   const env = { ...process.env };
+  // The build script spawns `vp` by name, so the checkout's own binaries come first.
+  env.PATH = [NodePath.join(REPO, "node_modules/.bin"), env.PATH]
+    .filter(Boolean)
+    .join(NodePath.delimiter);
   // Either variable bakes an update feed into the app, and the updater would
   // then replace this build with an official release.
   delete env.GITHUB_REPOSITORY;
