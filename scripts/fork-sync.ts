@@ -316,9 +316,12 @@ previous="$root/previous"
 marker="$root/installed-commit"
 # Pro ran the app from the production worktree before installs moved to /Applications.
 legacy="$HOME/.local/share/worktrees/t3code/production/release/mac-arm64/T3 Code (Beta).app"
-running_at() { ps -axo comm= | grep -F -- "$1/Contents/" >/dev/null; }
+# Processes whose executable lies inside the bundle, matched from the start of the path.
+bundle_pids() { ps -axo pid=,comm= | awk -v p="$1/Contents/" '{ pid = $1; sub(/^ *[0-9]+ /, ""); if (index($0, p) == 1) print pid }'; }
+running_at() { [ -n "$(bundle_pids "$1")" ]; }
 running() { running_at "$app" || running_at "$legacy"; }
-main_running() { ps -axo comm= | grep -F -x -- "$app/Contents/MacOS/T3 Code (Beta)" >/dev/null; }
+# The app's window process runs the executable bare; helpers and servers run it with a script or flags.
+gui_running_at() { ps -axo args= | awk -v e="$1/Contents/MacOS/T3 Code (Beta)" '$0 == e || index($0, e " -psn_") == 1 { found = 1 } END { exit !found }'; }
 
 if [ "$(cat "$marker" 2>/dev/null)" = "$commit" ]; then echo "INSTALL_RESULT already"; exit 0; fi
 rm -rf "$staged"; mkdir -p "$staged" "$previous"
@@ -327,39 +330,51 @@ new="$staged/T3 Code (Beta).app"
 codesign --verify --deep --strict "$new" || { echo "INSTALL_RESULT signature-invalid"; exit 1; }
 codesign -dvv "$new" 2>&1 | grep -F -- "Authority=$identity" >/dev/null || { echo "INSTALL_RESULT wrong-signer"; exit 1; }
 
+# Any failure after the quit reopens what was running, so a failed install never leaves T3 closed.
+reopen_old() {
+  if [ "$was_running" = 1 ] && [ -e "$app" ]; then open "$app"
+  elif [ "$legacy_was_running" = 1 ]; then open "$legacy"; fi
+}
+
 was_running=0
 legacy_was_running=0
-if running_at "$legacy"; then legacy_was_running=1; fi
+if gui_running_at "$app"; then was_running=1; fi
+if gui_running_at "$legacy"; then legacy_was_running=1; fi
 if running; then
-  was_running=1
   # Telling an app that is not running to quit would launch it first.
   for path in "$app" "$legacy"; do
-    if running_at "$path"; then
+    if gui_running_at "$path"; then
       osascript -e "tell application (POSIX file \"$path\" as text) to quit" >/dev/null 2>&1
     fi
   done
-  for _ in $(seq 1 120); do running || break; sleep 1; done
-  if running; then echo "INSTALL_RESULT old-app-still-running"; exit 1; fi
+  for _ in $(seq 1 30); do gui_running_at "$app" || gui_running_at "$legacy" || break; sleep 1; done
+  # Helpers (device tools, the resource monitor) and orphaned servers outlive the app's quit.
+  for signal in TERM KILL; do
+    for path in "$app" "$legacy"; do
+      for pid in $(bundle_pids "$path"); do kill -"$signal" "$pid" 2>/dev/null; done
+    done
+    for _ in $(seq 1 10); do running || break; sleep 1; done
+    running || break
+  done
+  if running; then reopen_old; echo "INSTALL_RESULT old-app-still-running"; exit 1; fi
 fi
 
-# Puts the old app back, and reopens it only if it was running before.
+# Puts the old app back, then reopens whichever app was running before.
 restore() {
   if [ -e "$previous/T3 Code (Beta).app" ]; then
     mv "$previous/T3 Code (Beta).app" "$app" || return 1
-    if [ "$was_running" = 1 ]; then open "$app"; fi
-  elif [ "$legacy_was_running" = 1 ]; then
-    open "$legacy"
   fi
+  reopen_old
   rm -rf "$staged"
 }
 
 rm -rf "$previous/T3 Code (Beta).app"
-if [ -e "$app" ]; then mv "$app" "$previous/" || { echo "INSTALL_RESULT move-old-failed"; exit 1; }; fi
+if [ -e "$app" ]; then mv "$app" "$previous/" || { reopen_old; echo "INSTALL_RESULT move-old-failed"; exit 1; }; fi
 mv "$new" "$app" || { restore; echo "INSTALL_RESULT move-new-failed"; exit 1; }
 open "$app"
-for _ in $(seq 1 60); do main_running && break; sleep 1; done
+for _ in $(seq 1 60); do gui_running_at "$app" && break; sleep 1; done
 sleep 15
-if ! main_running; then
+if ! gui_running_at "$app"; then
   rm -rf "$root/$commit/failed.app"; mv "$app" "$root/$commit/failed.app"
   if restore; then echo "INSTALL_RESULT new-app-did-not-start-rolled-back"; else echo "INSTALL_RESULT new-app-did-not-start-restore-failed"; fi
   exit 1
@@ -503,6 +518,8 @@ async function main(): Promise<Outcome> {
       say(`installing on ${machine}`);
       results[machine] = installOn(machine, commit, zipPath);
       say(`${machine}: ${results[machine]}`);
+      // One failed machine stops the rest, so a broken installer takes down at most one Mac.
+      if (!["installed", "already", "unreachable"].includes(results[machine] ?? "")) break;
     }
     const failed = Object.entries(results).filter(
       ([, result]) => !["installed", "already", "unreachable"].includes(result),
