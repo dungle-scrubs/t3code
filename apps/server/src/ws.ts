@@ -277,6 +277,7 @@ import * as VcsProjectConfig from "./vcs/VcsProjectConfig.ts";
 import * as PairingGrantStore from "./auth/PairingGrantStore.ts";
 import * as SessionStore from "./auth/SessionStore.ts";
 import { failEnvironmentAuthInvalid, failEnvironmentInternal } from "./auth/http.ts";
+import { senderClientFromSession } from "./auth/utils.ts";
 import * as SourceControlRateLimit from "@t3tools/source-control-core/server/SourceControlRateLimit";
 import { isNetworkPath } from "@t3tools/shared/path";
 import * as RelayClient from "@t3tools/shared/relayClient";
@@ -2030,6 +2031,10 @@ export const layerWsRpc = (
                           createdBy: "user",
                           creationSource:
                             "creationSource" in command ? command.creationSource : "web",
+                          senderClient:
+                            command.type === "message.dispatch"
+                              ? senderClientFromSession(currentSession.client)
+                              : undefined,
                         }),
                         {
                           managesProviders:
@@ -2240,6 +2245,7 @@ export const layerWsRpc = (
                               }),
                           createdBy: "user",
                           creationSource: input.creationSource ?? "web",
+                          senderClient: senderClientFromSession(currentSession.client),
                         }),
                       ),
                       Effect.provide(intakeContext),

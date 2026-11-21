@@ -109,6 +109,7 @@ const serveTunnel = (
                 scopes: request.url.includes("wsTicket=reader")
                   ? [AuthOrchestrationReadScope]
                   : [AuthOrchestrationReadScope, AuthTerminalOperateScope],
+                client: { deviceType: "desktop" },
               }),
           }),
         ),
