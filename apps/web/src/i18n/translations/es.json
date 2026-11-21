@@ -12459,5 +12459,7 @@
   "9307833bcf1645fe": "Sin repositorio de GitHub",
   "0fe2cff3077af5d7": "Comandos de pistas de teclado",
   "5b9b0363681ede1f": "Incidencias de GitHub",
-  "298ff7a5cf4e2568": "No disponible"
+  "298ff7a5cf4e2568": "No disponible",
+  "d8aaf932f90429c4": "Mover este comando al principio de la cola ({shortcut})",
+  "425ab15036aec8a4": "Mover este comando al principio de la cola"
 }
