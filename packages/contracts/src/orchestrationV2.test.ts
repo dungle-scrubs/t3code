@@ -739,6 +739,29 @@ describe("withMessageSenderNote", () => {
       "Hi",
       "[T3 Code: this message came through T3 Code's tools, not from the user typing in this chat.]\n\nHi",
     ],
+    [
+      {
+        createdBy: "user",
+        creationSource: "web",
+        senderClient: { ipAddress: "100.106.79.21", label: "MacBook Pro" },
+      },
+      "Hi",
+      '[T3 Code: the user sent this from another device at 100.106.79.21 (client "MacBook Pro"), not from this machine. localhost links from this machine will not open for them.]\n\nHi',
+    ],
+    [
+      { createdBy: "user", creationSource: "web", senderClient: { ipAddress: "100.106.79.21" } },
+      "Hi",
+      "[T3 Code: the user sent this from another device at 100.106.79.21, not from this machine. localhost links from this machine will not open for them.]\n\nHi",
+    ],
+    [
+      {
+        createdBy: "user",
+        creationSource: "web",
+        senderClient: { ipAddress: "100.106.79.21", label: "MacBook Pro" },
+      },
+      "/compact",
+      "/compact",
+    ],
     [{ createdBy: "user", creationSource: "web" }, "Hi", "Hi"],
     [{ createdBy: "agent", creationSource: "server" }, "Hi", "Hi"],
   ] as const)("labels %j's message %j for the provider", (message, text, expected) => {

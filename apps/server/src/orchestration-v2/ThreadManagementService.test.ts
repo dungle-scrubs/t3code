@@ -89,6 +89,54 @@ it("stamps authoritative provenance on commands that create threads or messages"
   expect(stamped).not.toHaveProperty("initialMessage");
 });
 
+it("stamps the sending device on a dispatched message and drops the client's claim", () => {
+  const command: OrchestrationV2Command = {
+    type: "message.dispatch",
+    commandId: CommandId.make("command:thread-management:dispatch"),
+    threadId: ThreadId.make("thread:thread-management:dispatch"),
+    messageId: MessageId.make("message:thread-management:dispatch"),
+    text: "Hello",
+    attachments: [],
+    createdBy: "user",
+    creationSource: "web",
+    dispatchMode: { type: "start_immediately" },
+    // A client cannot name its own device.
+    senderClient: { ipAddress: "10.0.0.9", label: "Forged" },
+  };
+
+  const stamped = ThreadManagementService.withCreationProvenance(command, {
+    createdBy: "user",
+    creationSource: "web",
+    senderClient: { ipAddress: "100.106.79.21", label: "MacBook Pro" },
+  });
+
+  expect(stamped).toMatchObject({
+    senderClient: { ipAddress: "100.106.79.21", label: "MacBook Pro" },
+  });
+});
+
+it("drops a client's sending device when the server has none", () => {
+  const command: OrchestrationV2Command = {
+    type: "message.dispatch",
+    commandId: CommandId.make("command:thread-management:dispatch-local"),
+    threadId: ThreadId.make("thread:thread-management:dispatch-local"),
+    messageId: MessageId.make("message:thread-management:dispatch-local"),
+    text: "Hello",
+    attachments: [],
+    createdBy: "user",
+    creationSource: "web",
+    dispatchMode: { type: "start_immediately" },
+    senderClient: { ipAddress: "10.0.0.9", label: "Forged" },
+  };
+
+  const stamped = ThreadManagementService.withCreationProvenance(command, {
+    createdBy: "user",
+    creationSource: "web",
+  });
+
+  expect(stamped).not.toHaveProperty("senderClient");
+});
+
 const layerReceiptsTest = CommandReceiptStore.layer.pipe(
   Layer.provide(SqlitePersistence.layerMemory),
 );

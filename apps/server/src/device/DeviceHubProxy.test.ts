@@ -60,6 +60,7 @@ const fixture = (
                   subject: "test",
                   method: "bearer-access-token",
                   scopes,
+                  client: { deviceType: "desktop" },
                 }),
         }),
       ),

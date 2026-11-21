@@ -1323,6 +1323,25 @@ it.effect("records the checkout's branch on a root launch that names none", () =
   }).pipe(Effect.provide(harness.layer));
 });
 
+it.effect("keeps the sending device on a launched thread's first message", () => {
+  const harness = makeHarness();
+  return Effect.gen(function* () {
+    const launches = yield* ThreadLaunch.ThreadLaunchService;
+    const threads = yield* ThreadManagement.ThreadManagementService;
+    const senderClient = { ipAddress: "100.106.79.21", label: "MacBook Pro" };
+    const launched = yield* launches.launch({
+      ...launchInput({
+        command: "command:launch:sender-client",
+        thread: "thread:launch:sender-client",
+        message: "First message",
+      }),
+      senderClient,
+    });
+    const projection = yield* threads.getThreadProjection(launched.threadId);
+    assert.deepStrictEqual(projection.messages[0]?.senderClient, senderClient);
+  }).pipe(Effect.provide(harness.layer));
+});
+
 it.effect("launches a worktree request for Scratch at the root, in its own folder", () => {
   const harness = scratchHarness();
   return Effect.gen(function* () {

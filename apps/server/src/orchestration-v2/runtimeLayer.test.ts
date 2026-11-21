@@ -7973,6 +7973,62 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
     }),
   );
 
+  it.effect("keeps the sending device on started and queued user messages", () =>
+    Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const threadId = ThreadId.make("runtime-layer-sender-client-thread");
+      const senderClient = { ipAddress: "100.106.79.21", label: "MacBook Pro" };
+      yield* orchestrator.dispatch({
+        type: "thread.create",
+        createdBy: "user",
+        creationSource: "web",
+        commandId: CommandId.make("runtime-layer-sender-client-create"),
+        threadId,
+        projectId: ProjectId.make("runtime-layer-sender-client-project"),
+        title: "Sending device",
+        modelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        branch: null,
+        worktreePath: "/tmp/runtime-layer-sender-client",
+      });
+      for (const [suffix, type] of [
+        ["started", "start_immediately"],
+        ["queued", "queue_after_active"],
+      ] as const) {
+        yield* orchestrator.dispatch({
+          type: "message.dispatch",
+          createdBy: "user",
+          creationSource: "web",
+          senderClient,
+          commandId: CommandId.make(`runtime-layer-sender-client-${suffix}`),
+          threadId,
+          messageId: MessageId.make(`runtime-layer-sender-client-${suffix}`),
+          text: `Sender client ${suffix} message`,
+          attachments: [],
+          modelSelection,
+          dispatchMode: { type },
+        });
+      }
+
+      const projection = yield* orchestrator.getThreadProjection(threadId);
+      for (const suffix of ["started", "queued"]) {
+        const message = projection.messages.find(
+          (candidate) => candidate.id === `runtime-layer-sender-client-${suffix}`,
+        );
+        assert.deepStrictEqual(message?.senderClient, senderClient);
+      }
+      const startedItem = projection.turnItems.find(
+        (item) =>
+          item.type === "user_message" && item.messageId === "runtime-layer-sender-client-started",
+      );
+      assert.deepStrictEqual(
+        startedItem?.type === "user_message" ? startedItem.senderClient : undefined,
+        senderClient,
+      );
+    }),
+  );
+
   it.effect("settles a thread its own agent settled once the turn completes", () =>
     Effect.gen(function* () {
       const orchestrator = yield* Orchestrator.OrchestratorV2;

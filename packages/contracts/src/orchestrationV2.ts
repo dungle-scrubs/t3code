@@ -155,6 +155,16 @@ export const OrchestrationV2LinkedSender = Schema.Struct({
 });
 export type OrchestrationV2LinkedSender = typeof OrchestrationV2LinkedSender.Type;
 
+/**
+ * The device a user sent a message from, when it was not the machine the server runs on.
+ * Only the server stamps this; a client cannot name its own device.
+ */
+export const OrchestrationV2SenderClient = Schema.Struct({
+  ipAddress: Schema.String,
+  label: Schema.optional(Schema.String),
+});
+export type OrchestrationV2SenderClient = typeof OrchestrationV2SenderClient.Type;
+
 export const OrchestrationV2NativeRefStrength = Schema.Literals(["strong", "weak", "none"]);
 export type OrchestrationV2NativeRefStrength = typeof OrchestrationV2NativeRefStrength.Type;
 
@@ -628,10 +638,12 @@ export function withMessageSenderNote(
     readonly scheduledTaskId?: ScheduledTaskId | undefined;
     readonly senderThreadId?: ThreadId | undefined;
     readonly linkedSender?: OrchestrationV2LinkedSender | undefined;
+    readonly senderClient?: OrchestrationV2SenderClient | undefined;
   },
   text: string,
 ): string {
   const agent = message.createdBy === "agent";
+  const senderClient = message.senderClient;
   const note =
     agent && message.linkedSender !== undefined
       ? `[T3 Code: the agent in T3 thread ${JSON.stringify(message.linkedSender.threadId)} on linked environment ${JSON.stringify(message.linkedSender.environmentId)} sent this message, not the user.]`
@@ -639,9 +651,13 @@ export function withMessageSenderNote(
         ? `[T3 Code: the agent in T3 thread ${JSON.stringify(message.senderThreadId)} sent this message, not the user.]`
         : message.scheduledTaskId !== undefined
           ? `[T3 Code: scheduled task ${JSON.stringify(message.scheduledTaskId)} sent this prompt, not the user typing in this chat.]`
-          : agent && message.creationSource === "mcp"
-            ? "[T3 Code: this message came through T3 Code's tools, not from the user typing in this chat.]"
-            : undefined;
+          : message.createdBy === "user" && senderClient !== undefined
+            ? senderClient.label === undefined
+              ? `[T3 Code: the user sent this from another device at ${senderClient.ipAddress}, not from this machine. localhost links from this machine will not open for them.]`
+              : `[T3 Code: the user sent this from another device at ${senderClient.ipAddress} (client ${JSON.stringify(senderClient.label)}), not from this machine. localhost links from this machine will not open for them.]`
+            : agent && message.creationSource === "mcp"
+              ? "[T3 Code: this message came through T3 Code's tools, not from the user typing in this chat.]"
+              : undefined;
   if (note === undefined || LEADING_COMMAND.test(text)) return text;
   return text === "" ? note : `${note}\n\n${text}`;
 }
@@ -1485,6 +1501,7 @@ export const OrchestrationV2ConversationMessage = Schema.Struct({
   followsThreadSelection: Schema.optional(Schema.Literal(true)),
   senderThreadId: Schema.optional(ThreadId),
   linkedSender: Schema.optional(OrchestrationV2LinkedSender),
+  senderClient: Schema.optional(OrchestrationV2SenderClient),
   idleCompaction: Schema.optional(OrchestrationV2IdleCompaction),
   /**
    * The message is the script a provider-native workflow run executes, not prose. Clients show
@@ -1852,6 +1869,7 @@ export const OrchestrationV2TurnItem = Schema.Union([
     scheduledTaskId: Schema.optional(ScheduledTaskId),
     senderThreadId: Schema.optional(ThreadId),
     linkedSender: Schema.optional(OrchestrationV2LinkedSender),
+    senderClient: Schema.optional(OrchestrationV2SenderClient),
     idleCompaction: Schema.optional(OrchestrationV2IdleCompaction),
     workflowScript: OrchestrationV2ConversationMessage.fields.workflowScript,
     freshContext: OrchestrationV2Run.fields.freshContext,
@@ -2749,6 +2767,7 @@ export const OrchestrationV2TurnItemJson = Schema.Union([
     scheduledTaskId: Schema.optional(ScheduledTaskId),
     senderThreadId: Schema.optional(ThreadId),
     linkedSender: Schema.optional(OrchestrationV2LinkedSender),
+    senderClient: Schema.optional(OrchestrationV2SenderClient),
     idleCompaction: Schema.optional(OrchestrationV2IdleCompaction),
     workflowScript: OrchestrationV2ConversationMessage.fields.workflowScript,
     freshContext: OrchestrationV2Run.fields.freshContext,
@@ -3276,6 +3295,8 @@ export const OrchestrationV2Command = Schema.Union([
         titleSeed: Schema.optional(TrimmedNonEmptyString),
         scheduledTaskId: Schema.optional(ScheduledTaskId),
         senderThreadId: Schema.optional(ThreadId),
+        /** Only the server sets this. */
+        senderClient: Schema.optional(OrchestrationV2SenderClient),
         outputSchema: Schema.optional(Schema.Record(Schema.String, Schema.Json)),
         workspaceStrategy: Schema.optional(OrchestrationV2ThreadLaunchWorkspaceStrategy),
       }),
@@ -3529,6 +3550,7 @@ export const OrchestrationV2Command = Schema.Union([
     scheduledTaskId: Schema.optional(ScheduledTaskId),
     senderThreadId: Schema.optional(ThreadId),
     linkedSender: Schema.optional(OrchestrationV2LinkedSender),
+    senderClient: Schema.optional(OrchestrationV2SenderClient),
     idleCompaction: Schema.optional(OrchestrationV2IdleCompaction),
     /** Start a new provider session without the thread's earlier context. Never steers. */
     freshContext: Schema.optional(Schema.Boolean),

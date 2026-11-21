@@ -12,6 +12,7 @@ import {
   type OrchestrationV2DelegatedFrom,
   type OrchestrationV2LinkOrigin,
   type OrchestrationV2ProviderThreadNativeMetadata,
+  type OrchestrationV2SenderClient,
   type OrchestrationV2ThreadProjection,
   type ProviderDriverKind,
   type ProviderInteractionMode,
@@ -108,6 +109,8 @@ export interface ThreadLaunchInput {
   readonly interactionMode: ProviderInteractionMode;
   readonly workspaceStrategy: ThreadLaunchWorkspaceStrategy;
   readonly initialMessage?: ThreadLaunchInitialMessage;
+  /** The device the user sent from, when it was not this machine. Only the server knows it. */
+  readonly senderClient?: OrchestrationV2SenderClient | undefined;
   readonly importedNativeThread?: {
     readonly ref: {
       readonly driver: ProviderDriverKind;
@@ -1442,6 +1445,7 @@ const make = Effect.gen(function* () {
                 ...(input.initialMessage.outputSchema === undefined
                   ? {}
                   : { outputSchema: input.initialMessage.outputSchema }),
+                ...(input.senderClient === undefined ? {} : { senderClient: input.senderClient }),
                 ...(input.generateTitle === true ? { titleSeed: input.title } : {}),
               };
         const claimDispatch =

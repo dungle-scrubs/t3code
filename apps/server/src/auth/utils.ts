@@ -2,11 +2,13 @@ import type {
   AuthClientMetadata,
   AuthClientMetadataDeviceType,
   AuthClientPresentationMetadata,
+  OrchestrationV2SenderClient,
 } from "@t3tools/contracts";
 import type * as HttpServerRequest from "effect/http/HttpServerRequest";
 // @effect-diagnostics-next-line nodeBuiltinImport:off -- Effect's Digest is effectful; the cookie name stays a plain function.
 import * as NodeCrypto from "node:crypto";
 import * as NodeNet from "node:net";
+import * as NodeOS from "node:os";
 import { normalizeHostname } from "@t3tools/shared/hostClassification";
 import * as Mac from "effect/crypto/Mac";
 import * as Base64Url from "effect/encoding/Base64Url";
@@ -168,6 +170,44 @@ function readRemoteAddressFromSource(source: unknown): string | undefined {
 
 const isLoopbackIpAddress = (address: string): boolean =>
   (NodeNet.isIPv4(address) && address.startsWith("127.")) || address === "::1";
+
+/** An IPv6 link-local address names its interface after a `%`; the note needs only the address. */
+function stripIpZoneSuffix(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  const zoneIndex = value.indexOf("%");
+  return zoneIndex === -1 ? value : value.slice(0, zoneIndex);
+}
+
+/** Every address this host answers on, so a client here is not another machine. */
+function hostIpAddresses(): ReadonlySet<string> {
+  const addresses = new Set<string>();
+  for (const infos of Object.values(NodeOS.networkInterfaces())) {
+    for (const info of infos ?? []) {
+      const address = normalizeIpAddress(info.address.split("%")[0]);
+      if (address !== undefined) {
+        addresses.add(address.toLowerCase());
+      }
+    }
+  }
+  return addresses;
+}
+
+/**
+ * The device a client sent from, when it is not this machine. A client on this host or on
+ * loopback needs no note: its links open here.
+ */
+export function senderClientFromSession(
+  client: AuthClientMetadata,
+): OrchestrationV2SenderClient | undefined {
+  const ipAddress = normalizeIpAddress(stripIpZoneSuffix(client.ipAddress));
+  if (ipAddress === undefined || isLoopbackIpAddress(ipAddress)) return undefined;
+  if (hostIpAddresses().has(ipAddress.toLowerCase())) return undefined;
+  const label =
+    typeof client.label === "string" && client.label.trim().length > 0
+      ? Array.from(client.label).slice(0, 64).join("")
+      : undefined;
+  return { ipAddress, ...(label === undefined ? {} : { label }) };
+}
 
 // A loopback peer is a local reverse proxy (Tailscale Serve); trust only the entry it appended.
 function resolveClientIpAddress(request: HttpServerRequest.HttpServerRequest): string | undefined {

@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vite-plus/test";
+import * as NodeOS from "node:os";
 
-import { deriveAuthClientMetadata, resolveSessionCookieName } from "./utils.ts";
+import {
+  deriveAuthClientMetadata,
+  resolveSessionCookieName,
+  senderClientFromSession,
+} from "./utils.ts";
 
 describe("deriveAuthClientMetadata", () => {
   it("labels Electron user agents as Electron instead of Chrome", () => {
@@ -172,5 +177,66 @@ describe("session cookie isolation", () => {
     });
 
     expect(first).toBe(second);
+  });
+});
+
+describe("senderClientFromSession", () => {
+  const hostAddress = (() => {
+    for (const infos of Object.values(NodeOS.networkInterfaces())) {
+      for (const info of infos ?? []) {
+        if (info.family === "IPv4" && !info.internal) return info.address;
+      }
+    }
+    return "127.0.0.1";
+  })();
+
+  it("names a client on another machine", () => {
+    expect(
+      senderClientFromSession({
+        deviceType: "desktop",
+        ipAddress: "100.106.79.21",
+        label: "MacBook Pro",
+      }),
+    ).toEqual({ ipAddress: "100.106.79.21", label: "MacBook Pro" });
+  });
+
+  it("omits an empty label", () => {
+    expect(
+      senderClientFromSession({
+        deviceType: "desktop",
+        ipAddress: "100.106.79.21",
+        label: "   ",
+      }),
+    ).toEqual({ ipAddress: "100.106.79.21" });
+  });
+
+  it("has nothing to say about a client without an address", () => {
+    expect(senderClientFromSession({ deviceType: "desktop" })).toBeUndefined();
+  });
+
+  it.each(["127.0.0.1", "::1", "::ffff:127.0.0.1"])(
+    "has nothing to say about the loopback address %s",
+    (ipAddress) => {
+      expect(senderClientFromSession({ deviceType: "desktop", ipAddress })).toBeUndefined();
+    },
+  );
+
+  it("has nothing to say about an address of this host", () => {
+    expect(
+      senderClientFromSession({ deviceType: "desktop", ipAddress: hostAddress }),
+    ).toBeUndefined();
+  });
+
+  it("drops the interface an IPv6 zone names", () => {
+    expect(
+      senderClientFromSession({ deviceType: "desktop", ipAddress: "2001:db8::1%en5" }),
+    ).toEqual({ ipAddress: "2001:db8::1" });
+  });
+
+  it("caps a long label at 64 characters", () => {
+    const label = "a".repeat(80);
+    expect(
+      senderClientFromSession({ deviceType: "desktop", ipAddress: "100.106.79.21", label }),
+    ).toEqual({ ipAddress: "100.106.79.21", label: "a".repeat(64) });
   });
 });

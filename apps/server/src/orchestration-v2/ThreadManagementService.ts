@@ -28,6 +28,7 @@ import {
   type OrchestrationV2ConversationMessage,
   type OrchestrationV2CreationSource,
   type OrchestrationV2LinkedSender,
+  type OrchestrationV2SenderClient,
   type OrchestrationV2Run,
   type OrchestrationV2ThreadShellSnapshot,
   type OrchestrationV2ThreadProjection,
@@ -80,6 +81,8 @@ export type ThreadManagementSendMode = "auto" | "queue" | "steer" | "restart";
 export interface ThreadManagementProvenance {
   readonly createdBy: OrchestrationV2Actor;
   readonly creationSource: OrchestrationV2CreationSource;
+  /** The device the user sent from, when it was not this machine. Only the server knows it. */
+  readonly senderClient?: OrchestrationV2SenderClient | undefined;
 }
 
 export function withCreationProvenance(
@@ -95,13 +98,25 @@ export function withCreationProvenance(
         initialMessage: _initialMessage,
         ...rest
       } = command;
-      return { ...rest, ...provenance };
+      const { senderClient: _senderClient, ...authoritative } = provenance;
+      return { ...rest, ...authoritative };
     }
-    case "message.dispatch":
+    case "message.dispatch": {
+      // Only the server knows which device a message came from, so a client's claim is dropped.
+      const { senderClient: _claimedSenderClient, ...rest } = command;
+      const { senderClient, ...authoritative } = provenance;
+      return {
+        ...rest,
+        ...authoritative,
+        ...(senderClient === undefined ? {} : { senderClient }),
+      };
+    }
     case "thread.fork":
     case "thread.merge_back":
-    case "delegated_task.request":
-      return { ...command, ...provenance };
+    case "delegated_task.request": {
+      const { senderClient: _senderClient, ...authoritative } = provenance;
+      return { ...command, ...authoritative };
+    }
     default:
       return command;
   }
