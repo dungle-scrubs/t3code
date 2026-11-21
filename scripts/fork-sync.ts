@@ -15,7 +15,7 @@ const STATE_DIR = NodePath.join(HOME, ".local/state/t3code-fork-sync");
 const STATE_FILE = NodePath.join(STATE_DIR, "state.json");
 const APP_NAME = "T3 Code (Beta).app";
 const IDENTITY = "Developer ID Application: Kevin Frilot (LBA643YFCL)";
-const GRAYBOX = NodePath.join(HOME, "dev/grayboxV2/bin/graybox");
+const GRAYBOX = NodePath.join(HOME, "dev/graybox/bin/graybox");
 // Failures a code change can fix: graybox resolves, verifies and pushes these itself.
 const PUSH_STEPS = new Set(["merge", "deps", "typecheck", "build"]);
 const LOCAL_MACHINE = process.env.FORK_SYNC_LOCAL ?? "mini";
