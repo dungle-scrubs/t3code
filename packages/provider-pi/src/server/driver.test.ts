@@ -127,7 +127,7 @@ it.layer(layerTest)("PiDriver workspace discovery", (it) => {
   it.effect("keeps each workspace's skills and commands separate from the machine catalog", () =>
     Effect.gen(function* () {
       const { spawner, launches } = yield* makePiSpawner();
-      const instance = yield* create({ launchArgs: '--skill "extra skill"' }).pipe(
+      const instance = yield* create({ launchArgs: '--approve --skill "extra skill"' }).pipe(
         Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
       );
       yield* instance.snapshot.refresh;
@@ -169,12 +169,6 @@ it.layer(layerTest)("PiDriver workspace discovery", (it) => {
         ["--approve", "--skill", "extra skill", "--no-session"],
       );
       assert.equal(workspaceLaunch!.options.env?.PI_CODING_AGENT_DIR, "/isolated-pi");
-      const machineLaunch = launches.find(
-        (launch) =>
-          launch.options.cwd?.endsWith("/pi-status-probe") && !launch.args.includes("--version"),
-      );
-      assert.isDefined(machineLaunch);
-      assert.notInclude([...machineLaunch!.args], "--approve");
       // Discovery processes are stopped as soon as they answer, so neither may start Pi's
       // network refresh at launch.
       assert.isFalse(launches.some((launch) => launch.options.cwd === "/machine"));

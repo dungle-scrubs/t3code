@@ -660,36 +660,31 @@ it.effect(
           lastError: null,
         },
       });
-      const requestModes = [
-        { id: "live", capability: "live", dismiss: false },
-        { id: "message", capability: "message", dismiss: true },
-        { id: "live-async", capability: "live", dismiss: true },
-      ] as const;
-      for (const [ordinal, mode] of requestModes.entries()) {
-        const requestId = RuntimeRequestId.make(`request:${mode.id}`);
+      for (const mode of ["live", "message"] as const) {
+        const requestId = RuntimeRequestId.make(`request:${mode}`);
         yield* projections.apply({
-          id: EventId.make(`request:${mode.id}`),
+          id: EventId.make(`request:${mode}`),
           type: "runtime-request.updated",
           threadId,
           occurredAt: now,
           payload: {
             id: requestId,
-            nodeId: NodeId.make(`node:${mode.id}`),
+            nodeId: NodeId.make(`node:${mode}`),
             providerTurnId: null,
             nativeRequestRef: null,
             kind: "user_input",
             status: "pending",
             responseCapability:
-              mode.capability === "live"
+              mode === "live"
                 ? { type: "live", providerSessionId: sessionId }
                 : { type: "message" },
             createdAt: now,
             resolvedAt: null,
           },
         });
-        const nodeId = NodeId.make(`node:${mode.id}`);
+        const nodeId = NodeId.make(`node:${mode}`);
         yield* projections.apply({
-          id: EventId.make(`node:${mode.id}`),
+          id: EventId.make(`node:${mode}`),
           type: "node.updated",
           threadId,
           occurredAt: now,
@@ -712,12 +707,12 @@ it.effect(
           },
         });
         yield* projections.apply({
-          id: EventId.make(`item:${mode.id}`),
+          id: EventId.make(`item:${mode}`),
           type: "turn-item.updated",
           threadId,
           occurredAt: now,
           payload: {
-            id: TurnItemId.make(`item:${mode.id}`),
+            id: TurnItemId.make(`item:${mode}`),
             threadId,
             runId: null,
             nodeId,
@@ -725,7 +720,7 @@ it.effect(
             providerTurnId: null,
             nativeItemRef: null,
             parentItemId: null,
-            ordinal: ordinal + 1,
+            ordinal: mode === "live" ? 1 : 2,
             status: "waiting",
             title: null,
             startedAt: now,
@@ -734,12 +729,11 @@ it.effect(
             type: "user_input_request",
             requestId,
             questions: [],
-            ...(mode.id === "live-async" ? { responseMode: "message" as const } : {}),
           },
         });
         const answers = { text: "Blue", list: ["Red"], codex: { answers: ["Green"] } };
         const normalizedAnswers = { ...answers, codex: ["Green"] };
-        if (mode.id === "live") {
+        if (mode === "live") {
           const pending = yield* projections.getRuntimeResponseContext(threadId, requestId);
           const sequence = yield* orchestrator.getThreadEventSequence(threadId);
           for (const [index, value] of [
@@ -767,25 +761,8 @@ it.effect(
             assert.equal(yield* orchestrator.getThreadEventSequence(threadId), sequence);
             assert.deepEqual(yield* outbox.listByCommandId(commandId), []);
           }
-          const dismissCommandId = CommandId.make(`dismiss:${mode.id}`);
-          const dismissSequence = yield* orchestrator.getThreadEventSequence(threadId);
-          const dismissResult = yield* orchestrator
-            .dispatch({
-              type: "thread.user-input.dismiss",
-              commandId: dismissCommandId,
-              threadId,
-              requestId,
-            })
-            .pipe(Effect.result);
-          assert.isTrue(Result.isFailure(dismissResult));
-          assert.equal(
-            (yield* projections.getRuntimeRequest(threadId, requestId))?.status,
-            "pending",
-          );
-          assert.equal(yield* orchestrator.getThreadEventSequence(threadId), dismissSequence);
-          assert.deepEqual(yield* outbox.listByCommandId(dismissCommandId), []);
         }
-        if (mode.id === "live") {
+        if (mode === "live") {
           yield* orchestrator.dispatch({
             type: "thread.snooze",
             commandId: CommandId.make("snooze-live-control"),
@@ -794,19 +771,19 @@ it.effect(
           });
         }
         yield* orchestrator.dispatch(
-          mode.dismiss
+          mode === "live"
             ? {
-                type: "thread.user-input.dismiss",
-                commandId: CommandId.make(`respond:${mode.id}`),
-                threadId,
-                requestId,
-              }
-            : {
                 type: "runtime-request.respond",
-                commandId: CommandId.make(`respond:${mode.id}`),
+                commandId: CommandId.make(`respond:${mode}`),
                 threadId,
                 requestId,
                 answers,
+              }
+            : {
+                type: "thread.user-input.dismiss",
+                commandId: CommandId.make(`respond:${mode}`),
+                threadId,
+                requestId,
               },
         );
         assert.equal(
@@ -814,9 +791,9 @@ it.effect(
           "resolved",
         );
         const response = yield* projections.getRuntimeResponseContext(threadId, requestId);
-        assert.equal(response.node?.status, mode.dismiss ? "cancelled" : "completed");
-        assert.equal(response.item?.status, mode.dismiss ? "cancelled" : "completed");
-        if (mode.id === "live") {
+        assert.equal(response.node?.status, mode === "live" ? "completed" : "cancelled");
+        assert.equal(response.item?.status, mode === "live" ? "completed" : "cancelled");
+        if (mode === "live") {
           assert.isNull((yield* projections.getThread(threadId)).snoozedUntil);
           assert.isNull((yield* projections.getThread(threadId)).snoozedAt);
           assert.deepEqual(response.request?.answers, normalizedAnswers);
@@ -824,7 +801,7 @@ it.effect(
           if (response.item?.type === "user_input_request") {
             assert.deepEqual(response.item.questionAnswer?.answers, normalizedAnswers);
           }
-          const effects = yield* outbox.listByCommandId(CommandId.make(`respond:${mode.id}`));
+          const effects = yield* outbox.listByCommandId(CommandId.make(`respond:${mode}`));
           assert.deepEqual(
             effects.map((effect) => effect.request),
             [
@@ -833,26 +810,6 @@ it.effect(
                 providerSessionId: sessionId,
                 requestId,
                 answers: normalizedAnswers,
-              },
-            ],
-          );
-        }
-        if (mode.id === "live-async") {
-          assert.equal(response.request?.decision, "cancel");
-          assert.isUndefined(response.request?.answers);
-          assert.equal(response.item?.type, "user_input_request");
-          if (response.item?.type === "user_input_request") {
-            assert.isUndefined(response.item.questionAnswer);
-          }
-          const effects = yield* outbox.listByCommandId(CommandId.make(`respond:${mode.id}`));
-          assert.deepEqual(
-            effects.map((effect) => effect.request),
-            [
-              {
-                type: "runtime-request.respond",
-                providerSessionId: sessionId,
-                requestId,
-                decision: "cancel",
               },
             ],
           );

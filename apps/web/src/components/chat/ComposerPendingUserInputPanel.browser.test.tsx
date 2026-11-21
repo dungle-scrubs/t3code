@@ -100,8 +100,6 @@ it.each<{ focus: string; control: ReactNode; toggles: boolean }>([
           answers={{}}
           questionIndex={0}
           onToggleOption={onToggleOption}
-          onChangeCustomAnswer={vi.fn()}
-          onPrevious={vi.fn()}
           onAdvance={vi.fn()}
           onDismiss={vi.fn()}
         />

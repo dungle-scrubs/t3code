@@ -10,8 +10,6 @@ import {
   type ChatAttachment,
   type ModelSelection,
   type OrchestrationV2ExecutionNode,
-  type OrchestrationV2PlanArtifact,
-  type OrchestrationV2PlanStep,
   type OrchestrationV2ProviderCapabilities,
   type OrchestrationV2ProviderFailure,
   type OrchestrationV2ProviderRef,
@@ -25,8 +23,6 @@ import {
   type OrchestrationV2UserInputQuestion,
   type ProviderApprovalDecision,
   type ProviderInstanceId,
-  type ThreadId,
-  type OrchestrationV2PendingBackgroundTask,
   type MessageId,
   type OrchestrationV2ProviderTurnTokenUsage,
 } from "@t3tools/contracts";
@@ -83,12 +79,7 @@ import {
   materializePiT3McpExtension,
   resolvePiLaunchArgs,
 } from "./mcpInjection.ts";
-import {
-  PI_BACKGROUND_TASK_WIDGET_KEY,
-  PI_FILE_CHANGE_TOOLS,
-  PI_T3_SERVICE_TIER_COMMAND,
-  PI_TASKS_WIDGET_KEY,
-} from "./mcpExtensionSource.ts";
+import { PI_FILE_CHANGE_TOOLS, PI_T3_SERVICE_TIER_COMMAND } from "./mcpExtensionSource.ts";
 import { PI_STANDARD_SERVICE_TIER } from "./modelCapabilities.ts";
 
 export const PI_PROVIDER = ProviderDriverKind.make("pi");
@@ -166,8 +157,8 @@ const PiProviderCapabilitiesV2 = {
     approvalsCanOriginateFromSubagents: false,
   },
   planning: {
-    emitsPlanUpdated: true,
-    emitsTodoList: true,
+    emitsPlanUpdated: false,
+    emitsTodoList: false,
     emitsProposedPlan: false,
     supportsStructuredQuestions: true,
     planDeltasHaveItemIds: false,
@@ -410,141 +401,8 @@ interface PiTurnTreeRefs {
   readonly retainedNativeTurnIds: ReadonlyArray<string> | undefined;
 }
 
-const PI_ASYNC_QUESTION_UUID =
-  "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}";
-const PI_ASYNC_QUESTION_TITLE = new RegExp(
-  `^\\[async-user-question:(${PI_ASYNC_QUESTION_UUID})\\] `,
-);
-const PI_ASYNC_QUESTION_WIDGET = new RegExp(`^async-user-question:(${PI_ASYNC_QUESTION_UUID})$`);
-
-const NonNegativeInt = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
-const NonNegativeNumber = Schema.Number.check(Schema.isGreaterThanOrEqualTo(0));
-const PiBackgroundTaskWidgetSnapshot = Schema.Struct({
-  schemaVersion: Schema.Literal(1),
-  tasks: Schema.Array(
-    Schema.Struct({
-      id: Schema.String.check(
-        Schema.makeFilter((id: string) => id.trim().length > 0, {
-          expected: "a non-blank task id",
-        }),
-      ),
-      command: Schema.String,
-      startTime: Schema.Number,
-      status: Schema.Literals(["running", "completed", "failed", "killed"]),
-      outputBytes: Schema.optional(NonNegativeInt),
-      checkCount: Schema.optional(NonNegativeInt),
-      lastOutputAt: Schema.optional(NonNegativeNumber),
-      lastCheckAt: Schema.optional(NonNegativeNumber),
-      completionNotificationEnabled: Schema.optional(Schema.Boolean),
-    }),
-  ),
-});
-const decodePiBackgroundTaskWidget = Schema.decodeUnknownOption(
-  Schema.fromJsonString(PiBackgroundTaskWidgetSnapshot),
-);
-type PiBackgroundTaskSnapshot = typeof PiBackgroundTaskWidgetSnapshot.Type;
-
-const PiTaskBoardWidgetSnapshot = Schema.Struct({
-  schemaVersion: Schema.Literal(1),
-  tasks: Schema.Array(
-    Schema.Struct({
-      id: Schema.String.check(
-        Schema.makeFilter((id: string) => id.trim().length > 0, {
-          expected: "a non-blank task id",
-        }),
-      ),
-      subject: Schema.String,
-      status: Schema.Literals(["pending", "in_progress", "completed"]),
-      activeForm: Schema.optional(Schema.String),
-    }),
-  ),
-});
-const decodePiTaskBoardWidget = Schema.decodeUnknownOption(
-  Schema.fromJsonString(PiTaskBoardWidgetSnapshot),
-);
-type PiTaskBoardSnapshot = typeof PiTaskBoardWidgetSnapshot.Type;
-
-const PI_TASK_LIST_SUFFIX = ":task-list";
-
-function normalizePiTaskBoard(
-  tasks: PiTaskBoardSnapshot["tasks"],
-): ReadonlyArray<OrchestrationV2PlanStep> {
-  const seen = new Set<string>();
-  const steps: OrchestrationV2PlanStep[] = [];
-  for (const task of tasks) {
-    if (seen.has(task.id)) continue;
-    seen.add(task.id);
-    const subject = task.subject.trim();
-    const activeForm = task.activeForm?.trim() ?? "";
-    let text = subject;
-    if (task.status === "in_progress" && activeForm.length > 0) text = activeForm;
-    else if (subject.length === 0) text = `Task ${task.id}`.trim();
-    steps.push({
-      id: task.id,
-      text,
-      status: task.status === "in_progress" ? "running" : task.status,
-    });
-  }
-  return steps;
-}
-
-function piTaskPlanStatus(
-  steps: ReadonlyArray<OrchestrationV2PlanStep>,
-): Extract<OrchestrationV2PlanArtifact, { kind: "todo_list" }>["status"] {
-  return steps.every((step) => step.status === "completed") ? "completed" : "active";
-}
-
-function samePiTaskSteps(
-  left: ReadonlyArray<OrchestrationV2PlanStep>,
-  right: ReadonlyArray<OrchestrationV2PlanStep>,
-): boolean {
-  return (
-    left.length === right.length &&
-    left.every(
-      (step, index) =>
-        step.id === right[index]?.id &&
-        step.text === right[index]?.text &&
-        step.status === right[index]?.status,
-    )
-  );
-}
-
-interface PiRunningBackgroundCommand {
-  readonly id: string;
-  readonly command: string;
-  readonly startTime: number;
-  readonly outputBytes?: number;
-}
-
-function backgroundCommandDescription(task: PiRunningBackgroundCommand): string | undefined {
-  const command = task.command.trim();
-  if (task.outputBytes === undefined) return command.length === 0 ? undefined : command;
-  const suffix = ` (${task.outputBytes} ${task.outputBytes === 1 ? "byte" : "bytes"} output)`;
-  return `${command.length === 0 ? task.id : command}${suffix}`;
-}
-
-function runningBackgroundCommands(
-  tasks: PiBackgroundTaskSnapshot["tasks"],
-): ReadonlyArray<PiRunningBackgroundCommand> {
-  const seen = new Set<string>();
-  const running: PiRunningBackgroundCommand[] = [];
-  for (const task of tasks) {
-    if (seen.has(task.id)) continue;
-    seen.add(task.id);
-    if (task.status !== "running") continue;
-    running.push({
-      id: task.id,
-      command: task.command,
-      startTime: task.startTime,
-      ...(task.outputBytes === undefined ? {} : { outputBytes: task.outputBytes }),
-    });
-  }
-  return running;
-}
-
 interface PendingPiPrompt {
   readonly nativeRequestId: string;
-  readonly asyncQuestionId: string | null;
   readonly method: "select" | "confirm" | "input" | "editor";
   readonly questionId: string;
   readonly approvalKey: string;
@@ -598,17 +456,6 @@ const isLiveSessionOf = (state: PiThreadState, nativeId: string | null | undefin
 interface PiWake {
   readonly state: PiThreadState;
   readonly events: Array<PiRpcRecord>;
-}
-
-interface PiTaskProjection {
-  readonly rootNodeId: OrchestrationV2ExecutionNode["rootNodeId"];
-  readonly providerThreadId: NonNullable<OrchestrationV2ExecutionNode["providerThreadId"]>;
-  readonly providerTurnId: OrchestrationV2ProviderTurn["id"];
-  readonly nativeThreadId: string | null;
-  readonly nativeItemId: string;
-  readonly ordinal: number;
-  readonly startedAt: DateTime.Utc;
-  plan: Extract<OrchestrationV2PlanArtifact, { kind: "todo_list" }>;
 }
 
 export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
@@ -697,8 +544,6 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
             extensionPath,
             sessionPath,
             runtimeMode: input.runtimePolicy.runtimeMode,
-            // The project is opened by the user, so Pi must not ask again.
-            trustProject: true,
           });
           const scopedLaunch = yield* agentScope.wrap({
             command: options.settings.binaryPath || "pi",
@@ -811,26 +656,11 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
         void,
         ProviderAdapter.ProviderAdapterProtocolError
       > | null = null;
-      let nativeEventBarrier: Deferred.Deferred<
-        void,
-        ProviderAdapter.ProviderAdapterProtocolError
-      > | null = null;
-      let runningBackgroundCommandsState: ReadonlyArray<PiRunningBackgroundCommand> = [];
-      let taskSteps: ReadonlyArray<OrchestrationV2PlanStep> | null = null;
-      let taskProjection: PiTaskProjection | null = null;
-      let rollbackTaskSteps: ReadonlyArray<OrchestrationV2PlanStep> | null = null;
-      const awaitedBackgroundStarts = new Map<string, number>();
       let pendingPromptResponsesDrained: Deferred.Deferred<
         void,
         ProviderAdapter.ProviderAdapterProtocolError
       > | null = null;
       let closed = false;
-      const failNativeEventBarrier = (detail: string) => {
-        const barrier = nativeEventBarrier;
-        if (barrier === null) return Effect.void;
-        nativeEventBarrier = null;
-        return Deferred.fail(barrier, protocolError(detail));
-      };
       yield* Effect.addFinalizer(() =>
         Effect.gen(function* () {
           closed = true;
@@ -851,7 +681,6 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
               rollbackBarrier,
               protocolError("Pi session closed during rollback"),
             );
-          yield* failNativeEventBarrier("Pi session closed before background roster refresh");
         }),
       );
       let appliedModel: string | null = null;
@@ -1019,72 +848,6 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
             ...(retainedNativeTurnIds === undefined ? {} : { retainedNativeTurnIds }),
           });
         });
-
-      const pendingBackgroundTasksFromRoster =
-        (): ReadonlyArray<OrchestrationV2PendingBackgroundTask> =>
-          runningBackgroundCommandsState.map((task) => {
-            const description = backgroundCommandDescription(task);
-            const marked = awaitedBackgroundStarts.get(task.id) === task.startTime;
-            const pending: OrchestrationV2PendingBackgroundTask = {
-              taskId: task.id,
-              kind: "command",
-              ...(description === undefined ? {} : { description }),
-              ...(marked ? { awaited: true } : {}),
-            };
-            return pending;
-          });
-
-      const resetBackgroundRoster = () => {
-        runningBackgroundCommandsState = [];
-        awaitedBackgroundStarts.clear();
-      };
-
-      const replaceBackgroundRoster = (tasks: PiBackgroundTaskSnapshot["tasks"]) => {
-        const running = runningBackgroundCommands(tasks);
-        const nextAwaited = new Map<string, number>();
-        for (const task of running) {
-          const markedStart = awaitedBackgroundStarts.get(task.id);
-          if (markedStart === task.startTime) nextAwaited.set(task.id, markedStart);
-        }
-        runningBackgroundCommandsState = running;
-        awaitedBackgroundStarts.clear();
-        for (const [id, startTime] of nextAwaited) awaitedBackgroundStarts.set(id, startTime);
-      };
-
-      // Output-byte snapshots arrive per chunk and already run inside the session event.
-      const publishBackgroundRoster = Effect.fnUntraced(function* () {
-        const state = threadState;
-        if (state === null) return;
-        yield* updateProviderThread(state, {
-          pendingBackgroundTasks: pendingBackgroundTasksFromRoster(),
-        });
-      });
-
-      // RPC responses never enter the event pump, so a lifecycle snapshot can already be queued.
-      const observeQueuedNativeEvents = Effect.fn("PiAdapter.observeQueuedNativeEvents")(
-        function* () {
-          const barrier = yield* Deferred.make<
-            void,
-            ProviderAdapter.ProviderAdapterProtocolError
-          >();
-          nativeEventBarrier = barrier;
-          const queued = yield* Queue.offer(connection.events, {
-            type: "t3.native_event_barrier",
-            barrier,
-          });
-          if (!queued) {
-            if (nativeEventBarrier === barrier) nativeEventBarrier = null;
-            return yield* protocolError("Pi transport closed before background roster refresh");
-          }
-          yield* Deferred.await(barrier).pipe(
-            Effect.ensuring(
-              Effect.sync(() => {
-                if (nativeEventBarrier === barrier) nativeEventBarrier = null;
-              }),
-            ),
-          );
-        },
-      );
 
       const itemOrdinal = (turn: ActivePiTurn, nativeItemId: string): number => {
         const existing = turn.itemOrdinals.get(nativeItemId);
@@ -1954,14 +1717,9 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
 
       const cancelPendingPrompts = Effect.fn("PiAdapter.cancelPendingPrompts")(function* (
         resolvedAt: DateTime.Utc,
-        preserveAsync = false,
       ) {
-        const pending = Array.from(pendingPrompts.entries()).flatMap(([id, prompt]) => {
-          if (preserveAsync && prompt.asyncQuestionId !== null) return [];
-          pendingPrompts.delete(id);
-          return [prompt];
-        });
-        // Async dialogs carry no custom answer, so the follow-up queue only holds turn-owned ones.
+        const pending = Array.from(pendingPrompts.values());
+        pendingPrompts.clear();
         customAnswerFollowUps.clear();
         yield* Effect.forEach(pending, (prompt) => cancelPrompt(prompt, resolvedAt), {
           discard: true,
@@ -2023,202 +1781,10 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
         );
       });
 
-      const supersedeTaskProjection = Effect.fn("PiAdapter.supersedeTaskProjection")(function* (
-        projection: PiTaskProjection | null,
-        threadId: ThreadId | null,
-      ) {
-        if (
-          projection === null ||
-          projection.plan.threadId !== threadId ||
-          projection.plan.status === "superseded"
-        )
-          return;
-        yield* emit({
-          type: "plan.updated",
-          driver: PI_PROVIDER,
-          plan: { ...projection.plan, status: "superseded" },
-        });
-      });
-
-      const emitTaskProjection = Effect.fnUntraced(function* (
-        turn: ActivePiTurn | null,
-        projection: PiTaskProjection,
-        steps: ReadonlyArray<OrchestrationV2PlanStep>,
-      ) {
-        const emittedAt = yield* DateTime.now;
-        const plan: PiTaskProjection["plan"] = {
-          ...projection.plan,
-          status: piTaskPlanStatus(steps),
-          steps: [...steps],
-        };
-        if (turn !== null) {
-          yield* emitItemNode(
-            turn,
-            projection.nativeItemId,
-            "todo_list",
-            "completed",
-            projection.startedAt,
-            emittedAt,
-          );
-        } else {
-          yield* emit({
-            type: "node.updated",
-            driver: PI_PROVIDER,
-            node: {
-              id: projection.plan.nodeId,
-              threadId: projection.plan.threadId,
-              runId: projection.plan.runId,
-              parentNodeId: projection.rootNodeId,
-              rootNodeId: projection.rootNodeId,
-              kind: "todo_list",
-              status: "completed",
-              countsForRun: false,
-              providerThreadId: projection.providerThreadId,
-              providerTurnId: projection.providerTurnId,
-              nativeItemRef: providerRef(projection.nativeItemId),
-              runtimeRequestId: null,
-              checkpointScopeId: null,
-              startedAt: projection.startedAt,
-              completedAt: emittedAt,
-            },
-          });
-        }
-        yield* emit({ type: "plan.updated", driver: PI_PROVIDER, plan });
-        yield* emit({
-          type: "turn_item.updated",
-          driver: PI_PROVIDER,
-          turnItem:
-            turn === null
-              ? {
-                  id: idAllocator.derive.turnItemFromProviderItem({
-                    driver: PI_PROVIDER,
-                    nativeItemId: projection.nativeItemId,
-                  }),
-                  threadId: projection.plan.threadId,
-                  runId: projection.plan.runId,
-                  nodeId: projection.plan.nodeId,
-                  providerThreadId: projection.providerThreadId,
-                  providerTurnId: projection.providerTurnId,
-                  nativeItemRef: providerRef(projection.nativeItemId),
-                  parentItemId: null,
-                  ordinal: projection.ordinal,
-                  status: "completed",
-                  title: null,
-                  startedAt: projection.startedAt,
-                  completedAt: emittedAt,
-                  updatedAt: emittedAt,
-                  type: "todo_list",
-                  planId: projection.plan.id,
-                  steps: [...steps],
-                }
-              : {
-                  ...baseItemFields(turn, projection.nativeItemId, projection.startedAt, emittedAt),
-                  status: "completed",
-                  title: null,
-                  completedAt: emittedAt,
-                  type: "todo_list",
-                  planId: projection.plan.id,
-                  steps: [...steps],
-                },
-        });
-        projection.plan = plan;
-      });
-
-      const publishTaskBoard = Effect.fnUntraced(function* (turn: ActivePiTurn | null) {
-        if (taskSteps === null) return;
-        const steps = taskSteps;
-        if (turn === null) {
-          if (taskProjection === null || samePiTaskSteps(taskProjection.plan.steps, steps)) return;
-          yield* emitTaskProjection(null, taskProjection, steps);
-          return;
-        }
-        if (taskProjection?.providerTurnId === turn.providerTurn.id) {
-          if (samePiTaskSteps(taskProjection.plan.steps, steps)) return;
-          yield* emitTaskProjection(turn, taskProjection, steps);
-          return;
-        }
-        if (steps.length === 0) return;
-        yield* supersedeTaskProjection(taskProjection, turn.turnInput.threadId);
-        const emittedAt = yield* DateTime.now;
-        const nativeItemId = `${turn.providerTurn.id}${PI_TASK_LIST_SUFFIX}`;
-        const planId = yield* idAllocator.allocate.plan({
-          threadId: turn.turnInput.threadId,
-          runId: turn.turnInput.runId,
-          driver: PI_PROVIDER,
-        });
-        const fields = baseItemFields(turn, nativeItemId, emittedAt, emittedAt);
-        const projection: PiTaskProjection = {
-          rootNodeId: turn.turnInput.rootNodeId,
-          providerThreadId: turn.turnInput.providerThread.id,
-          providerTurnId: turn.providerTurn.id,
-          nativeThreadId: turn.turnInput.providerThread.nativeThreadRef?.nativeId ?? null,
-          nativeItemId,
-          ordinal: fields.ordinal,
-          startedAt: emittedAt,
-          plan: {
-            id: planId,
-            threadId: turn.turnInput.threadId,
-            runId: turn.turnInput.runId,
-            nodeId: fields.nodeId,
-            kind: "todo_list",
-            status: piTaskPlanStatus(steps),
-            steps: [...steps],
-          },
-        };
-        taskProjection = projection;
-        yield* emitTaskProjection(turn, projection, steps);
-      });
-
       const handleExtensionUiRequest = Effect.fnUntraced(function* (event: PiRpcRecord) {
         const method = recordString(event, "method");
         const nativeRequestId = recordString(event, "id");
         if (method === undefined) return;
-        if (method === "setWidget") {
-          const widgetKey = recordString(event, "widgetKey") ?? "";
-          if (widgetKey === "subagent-async") {
-            yield* updateAsyncSubagents(event);
-            return;
-          }
-          if (widgetKey === PI_BACKGROUND_TASK_WIDGET_KEY) {
-            const lines = event["widgetLines"];
-            const line = Array.isArray(lines) && lines.length === 1 ? lines[0] : undefined;
-            if (typeof line === "string") {
-              const decoded = decodePiBackgroundTaskWidget(line);
-              if (Option.isSome(decoded)) {
-                replaceBackgroundRoster(decoded.value.tasks);
-                yield* publishBackgroundRoster();
-              }
-            }
-            return;
-          }
-          if (widgetKey === PI_TASKS_WIDGET_KEY) {
-            const lines = event["widgetLines"];
-            const line = Array.isArray(lines) && lines.length === 1 ? lines[0] : undefined;
-            if (typeof line === "string") {
-              const decoded = decodePiTaskBoardWidget(line);
-              if (Option.isSome(decoded)) {
-                const steps = normalizePiTaskBoard(decoded.value.tasks);
-                if (rollbackBarrier !== null) {
-                  rollbackTaskSteps = steps;
-                } else {
-                  taskSteps = steps;
-                  if (threadState !== null) yield* publishTaskBoard(threadState.activeTurn);
-                }
-              }
-            }
-            return;
-          }
-          const questionId = PI_ASYNC_QUESTION_WIDGET.exec(widgetKey)?.[1];
-          if (questionId !== undefined && event["widgetLines"] === undefined) {
-            const now = yield* DateTime.now;
-            for (const [id, pending] of pendingPrompts) {
-              if (pending.asyncQuestionId !== questionId) continue;
-              pendingPrompts.delete(id);
-              yield* cancelPrompt(pending, now);
-            }
-          }
-          return;
-        }
         if (method === "notify") {
           const state = threadState;
           const turn = state?.activeTurn ?? null;
@@ -2231,6 +1797,10 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
             message,
             notifyType === "warning" || notifyType === "error" ? notifyType : "info",
           );
+          return;
+        }
+        if (method === "setWidget" && recordString(event, "widgetKey") === "subagent-async") {
+          yield* updateAsyncSubagents(event);
           return;
         }
         if (
@@ -2280,23 +1850,17 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
           timeout === undefined || timeout === 0
             ? null
             : DateTime.toEpochMillis(createdAt) + Math.max(0, timeout);
-        const rawTitle = recordString(event, "title") ?? method;
-        const asyncMarker =
-          method === "select" || method === "input" ? PI_ASYNC_QUESTION_TITLE.exec(rawTitle) : null;
-        const asyncQuestionId = asyncMarker?.[1] ?? null;
-        const title = asyncMarker === null ? rawTitle : rawTitle.slice(asyncMarker[0].length);
-        // Async dialogs belong to the session; terminal ingestion closes turn-owned questions.
-        const promptTurn = asyncQuestionId === null ? turn : null;
         const requestId = yield* idAllocator.allocate.runtimeRequest({
           driver: PI_PROVIDER,
-          ...(promptTurn === null ? {} : { providerTurnId: promptTurn.providerTurn.id }),
+          ...(turn === null ? {} : { providerTurnId: turn.providerTurn.id }),
           nativeRequestId,
         });
         const nodeId = idAllocator.derive.approvalNode({ requestId });
+        const title = recordString(event, "title") ?? method;
         const threadId =
           turn?.turnInput.threadId ?? state?.providerThread.appThreadId ?? input.threadId;
         const providerThreadId = state?.providerThread.id ?? null;
-        const providerTurnId = promptTurn?.providerTurn.id ?? null;
+        const providerTurnId = turn?.providerTurn.id ?? null;
         const runtimeRequest: OrchestrationV2RuntimeRequest = {
           id: requestId,
           nodeId,
@@ -2311,9 +1875,9 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
         const node: OrchestrationV2ExecutionNode = {
           id: nodeId,
           threadId,
-          runId: promptTurn?.turnInput.runId ?? null,
-          parentNodeId: promptTurn?.turnInput.rootNodeId ?? null,
-          rootNodeId: promptTurn?.turnInput.rootNodeId ?? nodeId,
+          runId: turn?.turnInput.runId ?? null,
+          parentNodeId: turn?.turnInput.rootNodeId ?? null,
+          rootNodeId: turn?.turnInput.rootNodeId ?? nodeId,
           kind: method === "confirm" ? "approval_request" : "user_input_request",
           status: "waiting",
           countsForRun: false,
@@ -2328,13 +1892,13 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
         const itemBase = {
           id: idAllocator.derive.approvalTurnItem({ requestId }),
           threadId,
-          runId: promptTurn?.turnInput.runId ?? null,
+          runId: turn?.turnInput.runId ?? null,
           nodeId,
           providerThreadId,
           providerTurnId,
           nativeItemRef: providerRef(nativeRequestId),
           parentItemId: null,
-          ordinal: promptTurn === null ? 0 : itemOrdinal(promptTurn, nativeRequestId),
+          ordinal: turn === null ? 0 : itemOrdinal(turn, nativeRequestId),
           status: "waiting" as const,
           title,
           startedAt: createdAt,
@@ -2342,7 +1906,7 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
           updatedAt: createdAt,
         };
         const askUser =
-          method === "select" && turn !== null && asyncQuestionId === null
+          method === "select" && turn !== null
             ? piAskUserSingleSelectQuestion(nativeRequestId, title, event, turn.toolArgs)
             : undefined;
         const turnItem: OrchestrationV2TurnItem =
@@ -2358,20 +1922,10 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
                 ...itemBase,
                 type: "user_input_request",
                 requestId,
-                questions: [
-                  {
-                    ...(askUser?.question ?? piQuestion(nativeRequestId, method, title, event)),
-                    ...(asyncQuestionId !== null && method === "select"
-                      ? { allowCustomAnswer: false }
-                      : {}),
-                  },
-                ],
-                // Message mode keeps the answer on the live dialog and leaves the composer free.
-                ...(asyncQuestionId === null ? {} : { responseMode: "message" as const }),
+                questions: [askUser?.question ?? piQuestion(nativeRequestId, method, title, event)],
               };
         const pending: PendingPiPrompt = {
           nativeRequestId,
-          asyncQuestionId,
           method,
           questionId: nativeRequestId,
           approvalKey,
@@ -2514,10 +2068,7 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
             turn.activeProviderRetry = null;
           }
         }
-        yield* cancelPendingPrompts(
-          completedAt,
-          !interrupted && turn.failure === null && turn.rejectedPromptFailure === null,
-        );
+        yield* cancelPendingPrompts(completedAt);
         // Stop clears Pi's queue, so an unread steer was dropped; otherwise Pi read it before settling.
         for (const messageId of turn.unreadSteers.splice(0)) {
           yield* emitSteerStatus(turn, messageId, interrupted ? "cancelled" : "completed");
@@ -2690,15 +2241,9 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
           return;
         }
         // Model hooks can show dialogs before turn ownership; keep requests session-scoped and buffer output.
-        const widgetKey =
-          event["type"] === "extension_ui_request" ? (recordString(event, "widgetKey") ?? "") : "";
         const interactiveUiRequest =
           event["type"] === "extension_ui_request" &&
-          (["select", "confirm", "input", "editor"].includes(String(event["method"])) ||
-            (event["method"] === "setWidget" &&
-              (PI_ASYNC_QUESTION_WIDGET.test(widgetKey) ||
-                widgetKey === PI_BACKGROUND_TASK_WIDGET_KEY ||
-                widgetKey === PI_TASKS_WIDGET_KEY)));
+          ["select", "confirm", "input", "editor"].includes(String(event["method"]));
         if (
           threadState?.activeTurn === null &&
           pendingWake !== null &&
@@ -3190,11 +2735,6 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
               yield* Deferred.succeed(rollbackBarrier, undefined);
             return;
           }
-          case "t3.native_event_barrier": {
-            if (nativeEventBarrier !== null && event["barrier"] === nativeEventBarrier)
-              yield* Deferred.succeed(nativeEventBarrier, undefined);
-            return;
-          }
           case "t3.settle_probe": {
             const data = event["data"];
             const probeFailed = event["probeFailed"] === true;
@@ -3319,7 +2859,6 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
                   rollbackBarrier,
                   protocolError("Pi transport closed during rollback"),
                 );
-              yield* failNativeEventBarrier("Pi transport closed before background roster refresh");
               pendingWake = null;
               const interrupted = state?.activeTurn?.interrupted === true;
               if (state?.activeTurn != null) {
@@ -3386,7 +2925,6 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
           shortLived: true,
           disableExtensions: true,
           disableTools: true,
-          trustProject: true,
         });
         return yield* Effect.scoped(
           Effect.gen(function* () {
@@ -3526,34 +3064,6 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
           const existing = threadInput.existingProviderThread;
           const resumeId = existing?.nativeThreadRef?.nativeId;
           const needsNewSession = resumeId == null && registrationAttempted;
-          const boundBefore = threadState;
-          const previousTaskProjection = taskProjection;
-          const boundNativeId = boundBefore?.providerThread.nativeThreadRef?.nativeId;
-          const replacing = resumeId != null || needsNewSession;
-          const sameLiveBinding =
-            boundBefore !== null &&
-            resumeId != null &&
-            resumeId === boundNativeId &&
-            existing?.id === boundBefore.providerThread.id &&
-            threadInput.threadId === boundBefore.providerThread.appThreadId;
-          // Background commands belong to the session that started them.
-          if (
-            boundBefore !== null &&
-            sameLiveBinding &&
-            runningBackgroundCommandsState.length > 0
-          ) {
-            return boundBefore.providerThread;
-          }
-          if (
-            replacing &&
-            !sameLiveBinding &&
-            boundBefore !== null &&
-            runningBackgroundCommandsState.length > 0
-          ) {
-            return yield* protocolError(
-              "Cannot switch Pi sessions while background commands belong to the current session",
-            );
-          }
           registrationAttempted = true;
           // This probe replaces switch_session as a resume's first request, so it keeps the lifecycle deadline.
           // It also recovers a failed spawn session before lifecycleRequest offers to its dead queue.
@@ -3567,12 +3077,7 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
             resumeId != null &&
             liveSessionFile !== undefined &&
             path.resolve(cwd, liveSessionFile) === path.resolve(cwd, resumeId);
-          const switchingSession = !alreadyOnResumeFile && (resumeId != null || needsNewSession);
-          if (replacing && !sameLiveBinding) {
-            resetBackgroundRoster();
-            taskSteps = null;
-          }
-          if (switchingSession) {
+          if (!alreadyOnResumeFile && (resumeId != null || needsNewSession)) {
             if (pendingWake !== null) {
               return yield* protocolError(
                 "Cannot switch Pi threads while native work is awaiting a turn",
@@ -3625,26 +3130,7 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
             return yield* protocolError("Pi did not create a distinct session file");
           }
           lastNativeThreadId = nativeId;
-          const baselineEntries = yield* request({ type: "get_entries" }).pipe(
-            Effect.orElseSucceed(() => undefined),
-          );
-          lastKnownLeaf = recordString(baselineEntries, "leafId") ?? null;
-          leafCursorStale = baselineEntries === undefined;
-          // RPC responses never enter the event pump, so a lifecycle snapshot can already be queued.
-          yield* observeQueuedNativeEvents();
-          const retainsTaskProjection =
-            previousTaskProjection !== null &&
-            previousTaskProjection.nativeThreadId === nativeId &&
-            previousTaskProjection.providerThreadId === existing?.id &&
-            previousTaskProjection.plan.threadId === threadInput.threadId;
-          if (retainsTaskProjection) {
-            taskSteps ??= previousTaskProjection.plan.steps;
-          } else {
-            yield* supersedeTaskProjection(previousTaskProjection, threadInput.threadId);
-            taskProjection = null;
-          }
           const createdAt = yield* DateTime.now;
-          const pendingBackgroundTasks = pendingBackgroundTasksFromRoster();
           const providerThread: OrchestrationV2ProviderThread =
             existing !== undefined
               ? {
@@ -3655,7 +3141,6 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
                     ? { nativeConversationHeadRef: null, contextUsage: null }
                     : {}),
                   status: "idle",
-                  pendingBackgroundTasks,
                   updatedAt: createdAt,
                 }
               : {
@@ -3675,7 +3160,7 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
                   lastRunOrdinal: null,
                   handoffIds: [],
                   forkedFrom: null,
-                  pendingBackgroundTasks,
+                  pendingBackgroundTasks: [],
                   createdAt,
                   updatedAt: createdAt,
                 };
@@ -3695,6 +3180,11 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
             }
             threadState = { providerThread, activeTurn: null, supersededSessionFiles: new Set() };
           }
+          const baselineEntries = yield* request({ type: "get_entries" }).pipe(
+            Effect.orElseSucceed(() => undefined),
+          );
+          lastKnownLeaf = recordString(baselineEntries, "leafId") ?? null;
+          leafCursorStale = baselineEntries === undefined;
           if (publish)
             yield* emit({
               type: "provider_thread.updated",
@@ -3846,22 +3336,11 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
         },
         events: Stream.fromQueue(events),
         backgroundTasksEndWithProcess: true,
-        hasPendingBackgroundWork: Effect.sync(
-          () => pendingWake !== null || runningBackgroundCommandsState.length > 0,
-        ),
+        hasPendingBackgroundWork: Effect.sync(() => pendingWake !== null),
         hasPendingBackgroundWorkForThread: (providerThread) =>
-          Effect.sync(() => {
-            const bound = threadState?.providerThread;
-            const sameThread =
-              bound !== undefined &&
-              bound.id === providerThread.id &&
-              bound.nativeThreadRef?.nativeId != null &&
-              bound.nativeThreadRef.nativeId === providerThread.nativeThreadRef?.nativeId;
-            return (
-              (pendingWake !== null && pendingWake.state.providerThread.id === providerThread.id) ||
-              (sameThread && runningBackgroundCommandsState.length > 0)
-            );
-          }),
+          Effect.sync(
+            () => pendingWake !== null && pendingWake.state.providerThread.id === providerThread.id,
+          ),
         getModelContextWindow: (selection) => {
           if (selection.instanceId !== options.instanceId) return undefined;
           const slug =
@@ -4028,7 +3507,6 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
                 state.providerThread = {
                   ...turnInput.providerThread,
                   nativeThreadRef: state.providerThread.nativeThreadRef,
-                  pendingBackgroundTasks: pendingBackgroundTasksFromRoster(),
                 };
                 state.activeTurn = activeTurn;
                 activeTurn.adoptedWake = wake !== null && !continuation;
@@ -4062,7 +3540,6 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
                   lastRunOrdinal: turnInput.runOrdinal,
                 });
                 yield* updateProviderSession("running", null);
-                yield* publishTaskBoard(activeTurn);
                 if (wake !== null) {
                   for (const event of wake.events) {
                     if (!continuation && event["type"] === "agent_settled") {
@@ -4166,40 +3643,6 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
                   }),
               ),
             ),
-        ),
-        awaitBackgroundTasks: Effect.fn("PiAdapter.awaitBackgroundTasks")(
-          function* ({ providerThread, taskIds, awaited }) {
-            const bound = threadState?.providerThread;
-            const nativeId = bound?.nativeThreadRef?.nativeId;
-            if (
-              bound === undefined ||
-              nativeId == null ||
-              bound.id !== providerThread.id ||
-              nativeId !== providerThread.nativeThreadRef?.nativeId
-            ) {
-              return { matched: [] };
-            }
-            const runningStarts = new Map(
-              runningBackgroundCommandsState.map((task) => [task.id, task.startTime] as const),
-            );
-            const matched = [...new Set(taskIds)].filter((taskId) => runningStarts.has(taskId));
-            if (matched.length === 0) return { matched };
-            if (awaited) {
-              for (const taskId of matched) {
-                const startTime = runningStarts.get(taskId);
-                if (startTime !== undefined) awaitedBackgroundStarts.set(taskId, startTime);
-              }
-            } else {
-              for (const taskId of matched) awaitedBackgroundStarts.delete(taskId);
-            }
-            const state = threadState;
-            if (state !== null)
-              yield* updateProviderThread(state, {
-                pendingBackgroundTasks: pendingBackgroundTasksFromRoster(),
-              });
-            return { matched };
-          },
-          (effect) => sessionEventPermit.withPermits(1)(effect),
         ),
         interruptTurn: Effect.fn("PiAdapter.interruptTurn")(
           function* (interruptInput) {
@@ -4476,7 +3919,6 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
                     void,
                     ProviderAdapter.ProviderAdapterProtocolError
                   >();
-                  rollbackTaskSteps = null;
                   rollbackBarrier = barrier;
                   return barrier;
                 }),
@@ -4527,13 +3969,6 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
                           "Pi rollback ownership changed during its fork",
                         );
                       lastNativeThreadId = forkSessionFile;
-                      yield* supersedeTaskProjection(
-                        taskProjection,
-                        state.providerThread.appThreadId,
-                      );
-                      taskProjection = null;
-                      taskSteps = rollbackTaskSteps;
-                      rollbackTaskSteps = null;
                       appliedModel = null;
                       appliedThinking = null;
                       appliedSessionName = null;
@@ -4550,10 +3985,7 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
                 }).pipe(Effect.onInterrupt(() => connection.terminate)),
               (barrier) =>
                 Effect.sync(() => {
-                  if (rollbackBarrier === barrier) {
-                    rollbackBarrier = null;
-                    rollbackTaskSteps = null;
-                  }
+                  if (rollbackBarrier === barrier) rollbackBarrier = null;
                 }),
             );
           },

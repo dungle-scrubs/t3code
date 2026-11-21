@@ -1,6 +1,4 @@
 // @effect-diagnostics nodeBuiltinImport:off -- Executes the shipped Pi extension at its native JavaScript boundary.
-import * as NodeEvents from "node:events";
-import * as NodeFSP from "node:fs/promises";
 import * as NodeCrypto from "node:crypto";
 import * as NodeModule from "node:module";
 import * as NodePath from "node:path";
@@ -43,35 +41,10 @@ type AgentStartHook = (
     systemPromptOptions?: { sections?: Record<string, string> | null; forceSystemPrompt?: string };
   },
   ctx: {
-    mode?: "rpc" | "tui" | "json" | "print";
-    cwd?: string;
     model?: { api: string };
-    ui: {
-      notify: (message: string, severity: string) => void;
-      setWidget?: (key: string, content: readonly string[] | undefined) => void;
-    };
+    ui: { notify: (message: string, severity: string) => void };
   },
 ) => Promise<{ systemPrompt: string } | undefined>;
-
-type McpBridgeEventBus = {
-  emit(channel: string, data: unknown): void;
-  on(channel: string, handler: (data: unknown) => void): () => void;
-};
-
-function createEventBus(): McpBridgeEventBus {
-  const emitter = new NodeEvents.EventEmitter();
-  return {
-    emit(channel, data) {
-      emitter.emit(channel, data);
-    },
-    on(channel, handler) {
-      emitter.on(channel, handler);
-      return () => {
-        emitter.off(channel, handler);
-      };
-    },
-  };
-}
 
 function activatesOnRegistration(tool: RegisteredTool) {
   return (
@@ -93,7 +66,6 @@ export async function loadMcpBridge(
   } = {},
 ) {
   const handlers = new Map<string, AgentStartHook>();
-  const events = createEventBus();
   const tools: RegisteredTool[] = [];
   const requests: Array<{ readonly method: string; readonly params?: unknown }> = [];
   let activeTools = ["read"];
@@ -138,7 +110,6 @@ export async function loadMcpBridge(
       },
     },
     AbortSignal,
-    NodeFSP,
     NodeCrypto,
     NodePath,
     Type: { Unsafe: (schema: unknown) => schema },
@@ -169,7 +140,6 @@ export async function loadMcpBridge(
       });
     },
     pi: {
-      events,
       on: (name: string, handler: AgentStartHook) => handlers.set(name, handler),
       registerCommand: () => {},
       registerTool: (tool: RegisteredTool) => {
@@ -235,7 +205,6 @@ export async function loadMcpBridge(
   };
   return {
     handlers,
-    events,
     tools,
     declaredTools,
     callableTools: () => callableTools().map((tool) => tool.name),

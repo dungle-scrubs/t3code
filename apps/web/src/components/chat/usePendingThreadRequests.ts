@@ -255,8 +255,7 @@ function makePendingCustomAnswerSetter(input: {
     if (!question || question.allowCustomAnswer === false) {
       return;
     }
-    // A message-mode answer is typed in its card, so the composer keeps the user's draft.
-    if (activePendingUserInput.responseMode !== "message") input.writePrompt(value);
+    input.writePrompt(value);
     input.withdrawRestoredAnswer(questionId, value);
     input.setPendingUserInputAnswersByRequestId((existing) => ({
       ...existing,
@@ -533,12 +532,10 @@ export function usePendingThreadRequests(input: {
     if (!activePendingUserInput) {
       return;
     }
-    const answeredInComposer = activePendingUserInput.responseMode !== "message";
-    // The option replaces the custom answer. Anything typed in the composer is the
+    // The option replaces the custom answer. Anything typed there is the
     // user's text, so it goes back to the thread draft instead of vanishing.
-    const displacedAnswer = answeredInComposer
-      ? readPendingUserInputDraft(draftScope).activePendingDraftAnswers[questionId]?.customAnswer
-      : undefined;
+    const displacedAnswer =
+      readPendingUserInputDraft(draftScope).activePendingDraftAnswers[questionId]?.customAnswer;
     const currentPrompt =
       useComposerDraftStore.getState().getComposerDraft(composerDraftTarget)?.prompt ?? "";
     const nextPrompt = carryDisplacedCustomAnswerIntoPrompt(currentPrompt, displacedAnswer);
@@ -591,7 +588,6 @@ export function usePendingThreadRequests(input: {
         },
       };
     });
-    if (!answeredInComposer) return;
     promptRef.current = "";
     composerRef.current?.resetCursorState({ cursor: 0 });
   };

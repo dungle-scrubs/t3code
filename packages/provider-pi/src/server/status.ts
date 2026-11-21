@@ -145,7 +145,7 @@ const makePiDiscoveryConnection = Effect.fnUntraced(function* (
   environment: NodeJS.ProcessEnv,
   launchArgs: ReadonlyArray<string>,
   cwd?: string,
-  options: { readonly trustProject?: boolean; readonly textGenerationLaunch?: boolean } = {},
+  textGenerationLaunch = false,
 ) {
   const launch = buildPiRpcLaunch({
     launchArgs,
@@ -153,9 +153,8 @@ const makePiDiscoveryConnection = Effect.fnUntraced(function* (
     mcpSession: undefined,
     extensionPath: undefined,
     ephemeral: true,
-    trustProject: options.trustProject === true,
-    disableExtensions: options.textGenerationLaunch === true,
-    disableTools: options.textGenerationLaunch === true,
+    disableExtensions: textGenerationLaunch,
+    disableTools: textGenerationLaunch,
     shortLived: true,
   });
   const connection = yield* makePiRpcConnection({
@@ -212,9 +211,13 @@ const discoverPiTextGenerationModelSlugs = Effect.fn(
   launchArgs: ReadonlyArray<string>,
   cwd?: string,
 ) {
-  const connection = yield* makePiDiscoveryConnection(piSettings, environment, launchArgs, cwd, {
-    textGenerationLaunch: true,
-  });
+  const connection = yield* makePiDiscoveryConnection(
+    piSettings,
+    environment,
+    launchArgs,
+    cwd,
+    true,
+  );
   const modelsData = yield* connection.request({ type: "get_available_models" });
   const models = yield* Effect.fromResult(parseDiscoveredModels(modelsData, undefined));
   return new Set(models.map((model) => model.slug));
@@ -308,7 +311,6 @@ export const discoverPiCommandsForCwd = Effect.fn("discoverPiCommandsForCwd")(
       providerProbeEnvironment(environment),
       launchArgs.args,
       cwd,
-      { trustProject: true },
     );
     // A failed read must not replace a previously usable workspace catalog with an empty one.
     const commandsData = yield* connection.request(

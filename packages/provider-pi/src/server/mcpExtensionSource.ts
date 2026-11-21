@@ -13,12 +13,6 @@ export const PI_T3_SERVICE_TIER_COMMAND = "t3-service-tier";
 // These tools trigger file-change approvals, bypassed by Auto-accept edits.
 export const PI_FILE_CHANGE_TOOLS = ["edit", "write"] as const;
 
-/** RPC `setWidget` key for versioned background-task snapshots. */
-export const PI_BACKGROUND_TASK_WIDGET_KEY = "t3:background-tasks:v1";
-
-/** RPC `setWidget` key for versioned task-board snapshots. */
-export const PI_TASKS_WIDGET_KEY = "t3:tasks:v1";
-
 export const PI_T3_MCP_EXTENSION_SOURCE = `\
 import { stripFrontmatter, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import * as NodeCrypto from "node:crypto";
@@ -36,12 +30,6 @@ const SERVICE_TIER_COMMAND = ${JSON.stringify(PI_T3_SERVICE_TIER_COMMAND)};
 const PROTOCOL = "2025-06-18";
 const READ_ONLY_TOOLS = new Set(["read", "grep", "find", "ls"]);
 const FILE_CHANGE_TOOLS = new Set(${JSON.stringify(PI_FILE_CHANGE_TOOLS)});
-const BACKGROUND_TASK_WIDGET_KEY = ${JSON.stringify(PI_BACKGROUND_TASK_WIDGET_KEY)};
-const TASKS_WIDGET_KEY = ${JSON.stringify(PI_TASKS_WIDGET_KEY)};
-const RPC_WIDGETS = [
-  ["interop.v1.background-tasks.snapshot", BACKGROUND_TASK_WIDGET_KEY],
-  ["interop.v1.tasks.snapshot", TASKS_WIDGET_KEY],
-];
 
 type RuntimeMode = "approval-required" | "auto-accept-edits" | "auto" | "full-access";
 
@@ -525,46 +513,11 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
     if (added.length > 0 || kept.length !== loaded.length) pi.setActiveTools([...kept, ...added]);
   };
 
-  let widgetTransport:
-    | { readonly ui: ExtensionContext["ui"]; readonly unsubscribe: Array<() => void> }
-    | undefined;
-  const releaseWidgetTransport = () => {
-    const transport = widgetTransport;
-    widgetTransport = undefined;
-    for (const unsubscribe of transport?.unsubscribe ?? []) unsubscribe();
-  };
-
   // Tree navigation restores its saved loadout after session_start.
   pi.on("session_tree", (_event, ctx) => reconcileDiscovery(ctx));
   pi.on("model_select", (_event, ctx) => reconcileDiscovery(ctx));
-  pi.on("session_shutdown", () => {
-    releaseWidgetTransport();
-  });
   pi.on("session_start", async (_event, ctx) => {
     reconcileDiscovery(ctx);
-    releaseWidgetTransport();
-    if (ctx.mode === "rpc") {
-      const ui = ctx.ui;
-      const unsubscribe = RPC_WIDGETS.map(([channel, widgetKey]) =>
-        pi.events.on(channel, (snapshot) => {
-          if (widgetTransport?.ui !== ui) return;
-          let encoded: string;
-          try {
-            encoded = JSON.stringify(snapshot);
-          } catch {
-            return;
-          }
-          if (typeof encoded !== "string") return;
-          ui.setWidget(widgetKey, [encoded]);
-        }),
-      );
-      widgetTransport = { ui, unsubscribe };
-      // Producer state.request parsing requires schemaVersion 1.
-      pi.events.emit("interop.v1.state.request", {
-        schemaVersion: 1,
-        requester: "t3-code",
-      });
-    }
     try {
       await ensureStarted();
     } catch (error) {
@@ -573,47 +526,17 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
     }
   });
 
-  async function readAgentsLocal(cwd) {
-    if (typeof cwd !== "string" || cwd.length === 0) return "";
-    const directories = [];
-    let dir = NodePath.resolve(cwd);
-    for (let depth = 0; depth < 40; depth += 1) {
-      directories.push(dir);
-      try {
-        await NodeFSP.access(NodePath.join(dir, ".git"));
-        break;
-      } catch {
-        const parent = NodePath.dirname(dir);
-        if (parent === dir) break;
-        dir = parent;
-      }
-    }
-    const parts = [];
-    for (const directory of directories.reverse()) {
-      try {
-        const text = (await NodeFSP.readFile(NodePath.join(directory, "AGENTS.local.md"), "utf8")).trim();
-        if (text.length > 0) parts.push(text);
-      } catch {
-        // This directory has no local instructions.
-      }
-    }
-    return parts.join("\\n\\n");
-  }
-
   // Keep guidance in the system prompt so leading slash commands still expand.
-  pi.on("before_agent_start", async (event, ctx) => {
+  pi.on("before_agent_start", (event, ctx) => {
     reconcileDiscovery(ctx);
-    const local = await readAgentsLocal(ctx.cwd);
     const instructions = ORCHESTRATION_INSTRUCTIONS + "\\n\\n" + PULL_REQUEST_LINKING_INSTRUCTIONS;
     const sections = event.systemPromptOptions?.sections;
     if (sections && typeof sections === "object" && event.systemPromptOptions?.forceSystemPrompt === undefined) {
       // A full prompt override bypasses Pi's later section rendering.
       sections.t3_code_orchestration = instructions;
-      if (local.length > 0) sections.t3_local_instructions = local;
       return undefined;
     }
-    const localSuffix = local.length > 0 ? "\\n\\n" + local : "";
-    return { systemPrompt: event.systemPrompt + "\\n\\n" + instructions + localSuffix };
+    return { systemPrompt: event.systemPrompt + "\\n\\n" + instructions };
   });
 }
 `;

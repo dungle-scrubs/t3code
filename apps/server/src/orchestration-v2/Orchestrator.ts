@@ -11688,14 +11688,13 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
       effects: Ref.Ref<Array<PendingOrchestrationEffectV2>>,
     ) {
-      const context = yield* projectionStore
-        .getRuntimeResponseContext(command.threadId, command.requestId)
+      const request = yield* projectionStore
+        .getRuntimeRequest(command.threadId, command.requestId)
         .pipe(
           Effect.mapError(
             (cause) => new OrchestratorProjectionError({ threadId: command.threadId, cause }),
           ),
         );
-      const request = context.request;
       if (request === undefined || request.status !== "pending") {
         return yield* new OrchestratorDispatchError({
           commandId: command.commandId,
@@ -11703,14 +11702,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           cause: "This question has already been answered.",
         });
       }
-      const item = context.item;
-      const dismissible =
-        request.kind === "user_input" &&
-        (request.responseCapability.type === "message" ||
-          (request.responseCapability.type === "live" &&
-            item?.type === "user_input_request" &&
-            item.responseMode === "message"));
-      if (!dismissible) {
+      if (request.kind !== "user_input" || request.responseCapability.type !== "message") {
         return yield* new OrchestratorDispatchError({
           commandId: command.commandId,
           commandType: command.type,

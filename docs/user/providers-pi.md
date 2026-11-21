@@ -50,10 +50,7 @@ reporting while a response streams and after it settles.
 Pi skills appear in the composer's `$` menu. This includes user skills and project skills that Pi
 loads for the current workspace; selecting one uses Pi's native skill expansion.
 
-Pi loads its normal user extensions. T3 Code trusts the selected workspace for Pi sessions and
-workspace skill discovery, so project settings, extensions, skills, prompts, and MCP servers load
-automatically. This trust applies only to Pi processes started for that workspace; it does not change
-Pi's saved trust decisions. Set `--no-approve` in Pi's launch arguments to skip project resources.
+Pi loads its normal user extensions, and project extensions once the folder is trusted in Pi.
 Blocking `select`, `confirm`, `input`, and `editor` dialogs work in T3 Code. Notifications appear in
 the work log. Extensions can publish status text near the composer. Terminal titles and generic
 widgets do not have a T3 Code equivalent.

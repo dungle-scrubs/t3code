@@ -1,7 +1,6 @@
 import {
   EnvironmentId,
   NodeId,
-  ProviderSessionId,
   RuntimeRequestId,
   ThreadId,
   TurnItemId,
@@ -20,8 +19,6 @@ vi.mock(import("../ChatMarkdown"), async (importOriginal) => ({
 import { act, fakeTimers, render } from "../../../test/render";
 import { DraftId, useComposerDraftStore } from "../../composerDraftStore";
 import { makeThreadProjectionFixture } from "../../test-fixtures";
-import type { ChatComposerHandle } from "./ChatComposer";
-import { ComposerPendingUserInputPanel } from "./ComposerPendingUserInputPanel";
 import { toastManager } from "../ui/toast";
 import { usePendingThreadRequests, usePendingUserInputDraft } from "./usePendingThreadRequests";
 
@@ -41,19 +38,7 @@ const prompt = {
   })),
 };
 
-const blockingCapability = {
-  type: "live" as const,
-  providerSessionId: ProviderSessionId.make("provider-session"),
-};
-
-function questionProjection(
-  threadId: ThreadId,
-  requestIds = ["first", "second"],
-  responseCapability: { readonly type: "message" } | typeof blockingCapability = {
-    type: "message" as const,
-  },
-  responseMode?: "message",
-) {
+function questionProjection(threadId: ThreadId, requestIds = ["first", "second"]) {
   const projection = makeThreadProjectionFixture();
   return {
     ...projection,
@@ -65,7 +50,7 @@ function questionProjection(
       nativeRequestRef: null,
       kind: "user_input" as const,
       status: "pending" as const,
-      responseCapability,
+      responseCapability: { type: "message" as const },
       createdAt: projection.updatedAt,
       resolvedAt: null,
     })),
@@ -86,7 +71,6 @@ function questionProjection(
       updatedAt: projection.updatedAt,
       type: "user_input_request" as const,
       requestId: RuntimeRequestId.make(id),
-      ...(responseMode === undefined ? {} : { responseMode }),
       questions: prompt.questions,
     })),
   } satisfies OrchestrationV2ThreadProjection;
@@ -96,32 +80,21 @@ interface ProbeProps {
   environmentId: EnvironmentId;
   projection: OrchestrationV2ThreadProjection;
   loading?: boolean;
-  promptRef?: { current: string };
-  composer?: Pick<ChatComposerHandle, "resetCursorState">;
-  setComposerDraftPrompt?: Parameters<typeof usePendingThreadRequests>[0]["setComposerDraftPrompt"];
   draftTarget?: DraftId;
 }
 
-function useProbeRequests({
-  environmentId,
-  projection,
-  loading = false,
-  promptRef: sharedPromptRef,
-  composer,
-  setComposerDraftPrompt = (target, prompt) =>
-    useComposerDraftStore.getState().setPrompt(target, prompt),
-  draftTarget,
-}: ProbeProps) {
-  const ownPromptRef = useRef("");
-  const composerRef = useRef((composer ?? null) as ChatComposerHandle | null);
+function useProbeRequests({ environmentId, projection, loading = false, draftTarget }: ProbeProps) {
+  const promptRef = useRef("");
+  const composerRef = useRef(null);
   const requests = usePendingThreadRequests({
     environmentId,
     activeThreadId: projection.thread.id,
     serverProjection: loading ? null : projection,
     supportsQuestionAttachments: false,
     composerDraftTarget: draftTarget ?? { environmentId, threadId: projection.thread.id },
-    setComposerDraftPrompt,
-    promptRef: sharedPromptRef ?? ownPromptRef,
+    setComposerDraftPrompt: (target, prompt) =>
+      useComposerDraftStore.getState().setPrompt(target, prompt),
+    promptRef,
     composerRef,
     setThreadError: () => {},
   });
@@ -186,10 +159,7 @@ it("tells the user when an option click moves their typed answer into the hidden
   const draftPrompt = () => useComposerDraftStore.getState().getComposerDraft(draftTarget)?.prompt;
   using toast = vi.spyOn(toastManager, "add");
   const probe = (threadId: ThreadId) => (
-    <PendingRequestsProbe
-      environmentId={environmentId}
-      projection={questionProjection(threadId, ["first", "second"], blockingCapability)}
-    />
+    <PendingRequestsProbe environmentId={environmentId} projection={questionProjection(threadId)} />
   );
   await using screen = await render(probe(threadRef.threadId));
 
@@ -328,149 +298,4 @@ it("isolates drafts by environment, thread and request and discards only resolve
       index === 0 ? undefined : `Answer ${index}`,
     );
   }
-});
-
-it.each([
-  {
-    mode: "message-mode",
-    capability: { type: "message" as const },
-    responseMode: undefined,
-    promptAfterEdit: "Normal draft",
-    promptAfterSelect: "Normal draft",
-    carriedPrompt: null,
-  },
-  {
-    mode: "Pi async",
-    capability: blockingCapability,
-    responseMode: "message" as const,
-    promptAfterEdit: "Normal draft",
-    promptAfterSelect: "Normal draft",
-    carriedPrompt: null,
-  },
-  {
-    mode: "blocking",
-    capability: blockingCapability,
-    responseMode: undefined,
-    promptAfterEdit: "Typed answer",
-    promptAfterSelect: "",
-    carriedPrompt: "Typed answer",
-  },
-])(
-  "answering a $mode question keeps or takes over the normal draft",
-  async ({ capability, responseMode, promptAfterEdit, promptAfterSelect, carriedPrompt }) => {
-    using _timers = fakeTimers();
-    const environmentId = EnvironmentId.make(`draft-${capability.type}`);
-    const promptRef = { current: "Normal draft" };
-    const resetCursorState = vi.fn();
-    const setComposerDraftPrompt = vi.fn();
-    await using _screen = await render(
-      <PendingRequestsProbe
-        environmentId={environmentId}
-        projection={questionProjection(threadRef.threadId, ["first"], capability, responseMode)}
-        promptRef={promptRef}
-        composer={{ resetCursorState }}
-        setComposerDraftPrompt={setComposerDraftPrompt}
-      />,
-    );
-
-    await act(() =>
-      requests.onChangeActivePendingUserInputCustomAnswer("question-0", "Typed answer"),
-    );
-    expect(promptRef.current).toBe(promptAfterEdit);
-    await act(() => requests.onSelectActivePendingUserInputOption("question-0", "Incremental"));
-    expect(requests.activePendingDraftAnswers["question-0"]).toMatchObject({
-      selectedOptionValues: ["Incremental"],
-    });
-    expect(promptRef.current).toBe(promptAfterSelect);
-    if (carriedPrompt === null) {
-      expect(setComposerDraftPrompt).not.toHaveBeenCalled();
-      expect(resetCursorState).not.toHaveBeenCalled();
-    } else {
-      expect(setComposerDraftPrompt).toHaveBeenCalledWith(
-        { environmentId, threadId: threadRef.threadId },
-        carriedPrompt,
-      );
-      expect(resetCursorState).toHaveBeenCalledWith({ cursor: 0 });
-    }
-  },
-);
-
-function QuestionCardProbe(props: ProbeProps & { onComposerSubmit: () => void }) {
-  const { onComposerSubmit, ...probeProps } = props;
-  const state = useProbeRequests(probeProps);
-  useLayoutEffect(() => {
-    requests = state;
-  });
-  return (
-    <form
-      onSubmit={(event) => {
-        event.preventDefault();
-        onComposerSubmit();
-      }}
-    >
-      <ComposerPendingUserInputPanel
-        pendingUserInputs={state.pendingUserInputs}
-        cwd={undefined}
-        threadRef={threadRef}
-        respondingRequestIds={state.respondingRequestIds}
-        answers={state.activePendingDraftAnswers}
-        questionIndex={state.activePendingQuestionIndex}
-        onToggleOption={state.onSelectActivePendingUserInputOption}
-        onChangeCustomAnswer={state.onChangeActivePendingUserInputCustomAnswer}
-        onPrevious={state.onPreviousActivePendingUserInputQuestion}
-        onAdvance={state.onAdvanceActivePendingUserInput}
-        onDismiss={() => {}}
-      />
-      <button type="submit">Send message</button>
-    </form>
-  );
-}
-
-it("opens a message-mode question expanded and answers it in its own card", async () => {
-  const promptRef = { current: "Normal draft" };
-  const onComposerSubmit = vi.fn();
-  await using screen = await render(
-    <QuestionCardProbe
-      environmentId={EnvironmentId.make("card-answer-environment")}
-      projection={questionProjection(threadRef.threadId, ["first"], blockingCapability, "message")}
-      promptRef={promptRef}
-      onComposerSubmit={onComposerSubmit}
-    />,
-  );
-  const toggle = screen.getByTitle("Hide the question and its options");
-  await expect.element(toggle).toHaveAttribute("data-pending-user-input-toggle", "expanded");
-  await expect.element(screen.getByText("Choose for question 1")).toBeVisible();
-  await userEvent.click(toggle);
-  await expect
-    .element(screen.getByTitle("Show the question and its options"))
-    .toHaveAttribute("data-pending-user-input-toggle", "collapsed");
-  await userEvent.click(screen.getByTitle("Show the question and its options"));
-
-  const answer = screen.getByRole("textbox", { name: "Your answer" });
-  await userEvent.type(answer, "Keep my text");
-  await expect.element(answer).toHaveValue("Keep my text");
-  expect(requests.activePendingDraftAnswers["question-0"]?.customAnswer).toBe("Keep my text");
-  await userEvent.keyboard("{Enter}");
-  await expect.element(screen.getByText("Choose for question 2")).toBeVisible();
-  expect(onComposerSubmit).not.toHaveBeenCalled();
-  expect(promptRef.current).toBe("Normal draft");
-
-  await userEvent.click(screen.getByRole("button", { name: "Previous" }));
-  await expect.element(screen.getByText("Choose for question 1")).toBeVisible();
-  await userEvent.click(screen.getByRole("button", { name: "Next question" }));
-  await expect.element(screen.getByText("Choose for question 2")).toBeVisible();
-  expect(onComposerSubmit).not.toHaveBeenCalled();
-});
-
-it("leaves a blocking question's answer to the composer", async () => {
-  await using screen = await render(
-    <QuestionCardProbe
-      environmentId={EnvironmentId.make("card-blocking-environment")}
-      projection={questionProjection(threadRef.threadId, ["first"], blockingCapability)}
-      onComposerSubmit={() => {}}
-    />,
-  );
-  await expect.element(screen.getByText("Choose for question 1")).toBeVisible();
-  expect(screen.getByRole("textbox", { name: "Your answer" }).query()).toBeNull();
-  expect(screen.getByRole("button", { name: "Next question" }).query()).toBeNull();
 });

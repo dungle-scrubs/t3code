@@ -78,8 +78,6 @@ const PI_ARGUMENTS_WITHOUT_VALUES = new Set([
   "--verbose",
 ]);
 
-const PI_TRUST_OVERRIDE_ARGUMENTS = new Set(["--approve", "-a", "--no-approve", "-na"]);
-
 export type PiLaunchArgsResolution =
   | { readonly ok: true; readonly args: ReadonlyArray<string> }
   | { readonly ok: false; readonly message: string };
@@ -159,34 +157,6 @@ export function resolvePiLaunchArgs(launchArgs: string): PiLaunchArgsResolution 
     return { ok: false, message: "Pi launch argument '--provider' requires '--model'." };
   }
   return { ok: true, args };
-}
-
-/**
- * Detects a trust override the user already set. Option values are skipped with the same
- * known-argument rules as `resolvePiLaunchArgs`, so `--name --no-approve` names a session
- * rather than denying project trust.
- */
-function hasPiTrustOverride(args: ReadonlyArray<string>): boolean {
-  for (let index = 0; index < args.length; index += 1) {
-    const arg = args[index];
-    if (arg === undefined) continue;
-    if (PI_TRUST_OVERRIDE_ARGUMENTS.has(arg)) return true;
-    if (PI_ARGUMENTS_WITH_VALUES.has(arg)) {
-      index += 1;
-      continue;
-    }
-    if (PI_ARGUMENTS_WITHOUT_VALUES.has(arg) || (arg.startsWith("--") && arg.includes("="))) {
-      continue;
-    }
-    if (arg.startsWith("--")) {
-      const next = args[index + 1];
-      if (next !== undefined && !next.startsWith("-") && !next.startsWith("@")) {
-        index += 1;
-      }
-      continue;
-    }
-  }
-  return false;
 }
 
 function bearerTokenFromAuthorizationHeader(header: string): string {
@@ -289,8 +259,6 @@ export function buildPiRpcLaunch(input: {
   readonly disableExtensions?: boolean;
   readonly disableTools?: boolean;
   readonly runtimeMode?: "approval-required" | "auto-accept-edits" | "auto" | "full-access";
-  /** Trust project-local resources for this process only; Pi writes no trust file. */
-  readonly trustProject?: boolean;
 }): {
   readonly args: ReadonlyArray<string>;
   readonly env: NodeJS.ProcessEnv;
@@ -303,8 +271,6 @@ export function buildPiRpcLaunch(input: {
       : input.launchArgs;
   const launchArgs =
     input.disableTools === true ? withoutToolSelectionArgs(extensionSafeArgs) : extensionSafeArgs;
-  const trustArgs =
-    input.trustProject === true && !hasPiTrustOverride(launchArgs) ? ["--approve"] : [];
   const args = [
     "--mode",
     "rpc",
@@ -313,7 +279,6 @@ export function buildPiRpcLaunch(input: {
       : input.sessionPath !== undefined
         ? ["--session", input.sessionPath]
         : []),
-    ...trustArgs,
     ...launchArgs,
     ...(input.shortLived === true && !launchArgs.includes("--offline") ? ["--offline"] : []),
     // Restrictions must follow launch args so user flags cannot re-enable unattended tools/extensions.
