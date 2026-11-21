@@ -69,14 +69,6 @@ export const make = Effect.gen(function* () {
   const homeDirectory = yield* HostProcess.HomeDirectory;
   const linuxDesktopEntryConfig = yield* LinuxDesktopEntryConfig;
   return yield* Effect.sync((): DesktopPreReadyElectronOptions["Service"] => {
-    // A checkout run outside dev shares the packaged app's data, so it needs the packaged
-    // app's safeStorage key, which the OS keystore files under the package name.
-    if (
-      !Electron.app.isPackaged &&
-      !DesktopEarlyElectronStartup.isDevelopmentEnvironment(process.env)
-    ) {
-      Electron.app.setName("t3code");
-    }
     const linuxPasswordStoreCommandLine =
       platform === "linux"
         ? readCommandLineSwitchValue(Electron.app.commandLine, "password-store")
