@@ -283,7 +283,9 @@ async function buildSigned(commit: string): Promise<string> {
     throw new StepFailed("sign", String(error));
   }
   run("sign", "codesign", ["--verify", "--deep", "--strict", app], { timeoutMs: 20 * MINUTE });
-  const details = NodeChildProcess.spawnSync("codesign", ["-dv", app], { encoding: "utf8" }).stderr;
+  const details = NodeChildProcess.spawnSync("codesign", ["-dvv", app], {
+    encoding: "utf8",
+  }).stderr;
   if (!details.includes(`Authority=${IDENTITY}`)) {
     throw new StepFailed("sign", `${APP_NAME} is not signed by ${IDENTITY}`);
   }
@@ -323,7 +325,7 @@ rm -rf "$staged"; mkdir -p "$staged" "$previous"
 ditto -x -k "$zip" "$staged" || { echo "INSTALL_RESULT unpack-failed"; exit 1; }
 new="$staged/T3 Code (Beta).app"
 codesign --verify --deep --strict "$new" || { echo "INSTALL_RESULT signature-invalid"; exit 1; }
-codesign -dv "$new" 2>&1 | grep -F -- "Authority=$identity" >/dev/null || { echo "INSTALL_RESULT wrong-signer"; exit 1; }
+codesign -dvv "$new" 2>&1 | grep -F -- "Authority=$identity" >/dev/null || { echo "INSTALL_RESULT wrong-signer"; exit 1; }
 
 was_running=0
 legacy_was_running=0
