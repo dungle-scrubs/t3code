@@ -26,6 +26,7 @@ export function resolveChatCanvasLayout({
   preview,
   padding = 48,
   maxChatWidth = 768,
+  maxHtmlPreviewWidth = maxChatWidth,
   minChatWidth = 640,
   composerHeight = 0,
   detailsCard = null,
@@ -35,6 +36,7 @@ export function resolveChatCanvasLayout({
   preview: ChatCanvasPreview | null;
   padding?: number;
   maxChatWidth?: number;
+  maxHtmlPreviewWidth?: number;
   minChatWidth?: number;
   composerHeight?: number;
   detailsCard?: PreviewMiniPlayerObstacles["detailsCard"];
@@ -176,13 +178,23 @@ export function resolveChatCanvasLayout({
     frame.x + frame.width > detailsCard.left &&
     frame.y < detailsCard.bottom,
   );
-  // Space a block wider than the lane may take on each side, kept equal so it stays centred.
-  const chatRight = chat.left + chat.width;
-  const cardLimit = detailsCard
-    ? detailsCard.left - DETAILS_CARD_CLEARANCE
-    : container.width - padding;
-  const roomEnd =
-    Math.min(cardLimit, frame && !overlapsChat ? frame.x - GAP : cardLimit) - chatRight;
+  // A wider HTML preview stays centered on the chat column while that fits, and
+  // clear of the details card and a mini player the chat column sits beside.
+  const laneEnd = frame ? Math.min(laneRight, frame.x - GAP) : laneRight;
+  const htmlPreviewWidth = overlapsChat ? 0 : Math.min(maxHtmlPreviewWidth, laneEnd - padding);
+  const htmlPreview =
+    htmlPreviewWidth > chat.width
+      ? {
+          left: Math.max(
+            padding,
+            Math.min(chat.left + (chat.width - htmlPreviewWidth) / 2, laneEnd - htmlPreviewWidth),
+          ),
+          width: htmlPreviewWidth,
+        }
+      : { left: chat.left, width: chat.width };
+  // Space a table or MCP app frame wider than the lane may take on each side, kept equal
+  // so it stays centred.
+  const roomEnd = (frame && !overlapsChat ? laneEnd : laneRight) - (chat.left + chat.width);
   const richRoom = Math.max(0, Math.min(chat.left - padding, roomEnd));
-  return { chat, frame, overlapsChat, overlapsDetailsCard, richRoom };
+  return { chat, htmlPreview, frame, overlapsChat, overlapsDetailsCard, richRoom };
 }
